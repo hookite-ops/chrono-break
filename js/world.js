@@ -154,84 +154,96 @@ export function groundAt(x, z, below) {
   return g;
 }
 
-// ------------------------------------------------------------ 격자 길찾기 (지면 높이 1m 이하만)
-const CELL = 1.5;
-const NAV = { nx: 0, nz: 0, free: null, x0: 0, z0: 0 };
+// ------------------------------------------------------------ 격자 길찾기 (높이 인식 2.5D)
+// 칸마다 "서 있을 수 있는 가장 높은 면"을 구하고, 오르막은 0.55 m까지·내리막은 얼마든지 이어진다.
+const CELL = 0.75, CLEAR = 1.9, MAXH = 6.5;
+const NAV = { nx: 0, nz: 0, free: null, h: null, x0: 0, z0: 0 };
 export function buildNav() {
   const B = W.bounds;
   NAV.x0 = B.x0; NAV.z0 = B.z0; NAV.nx = Math.ceil((B.x1 - B.x0) / CELL); NAV.nz = Math.ceil((B.z1 - B.z0) / CELL);
-  NAV.free = new Uint8Array(NAV.nx * NAV.nz);
-  const hs = 0.5;
+  const N = NAV.nx * NAV.nz;
+  NAV.free = new Uint8Array(N); NAV.h = new Float32Array(N);
+  const hs = 0.45, stat = boxes.filter(b => !b.dyn);
   for (let i = 0; i < NAV.nx; i++) for (let k = 0; k < NAV.nz; k++) {
-    const x = NAV.x0 + (i + 0.5) * CELL, z = NAV.z0 + (k + 0.5) * CELL;
-    let g = 0;
-    for (const b of boxes) if (!b.dyn && b.max.y <= 1.0 && b.max.y > g && x > b.min.x && x < b.max.x && z > b.min.z && z < b.max.z) g = b.max.y;
-    let ok = x > B.x0 + 0.8 && x < B.x1 - 0.8 && z > B.z0 + 0.8 && z < B.z1 - 0.8;
-    if (ok) for (const b of boxes) {
-      if (b.dyn) continue;
-      if (b.max.y <= g + STEP || b.min.y >= g + 1.9) continue;
-      if (x + hs > b.min.x && x - hs < b.max.x && z + hs > b.min.z && z - hs < b.max.z) { ok = false; break; }
+    const x = NAV.x0 + (i + 0.5) * CELL, z = NAV.z0 + (k + 0.5) * CELL, c = i + k * NAV.nx;
+    if (x < B.x0 + 0.8 || x > B.x1 - 0.8 || z < B.z0 + 0.8 || z > B.z1 - 0.8) continue;
+    const near = stat.filter(b => x + hs > b.min.x && x - hs < b.max.x && z + hs > b.min.z && z - hs < b.max.z);
+    // 후보 면: 바닥(0)과 가운데를 덮는 상자 윗면들
+    const cands = [0];
+    for (const b of near) if (b.max.y <= MAXH && x > b.min.x && x < b.max.x && z > b.min.z && z < b.max.z) cands.push(b.max.y);
+    cands.sort((a, b) => b - a);
+    for (const g of cands) {
+      let ok = true;
+      for (const b of near) if (b.max.y > g + STEP && b.min.y < g + CLEAR) { ok = false; break; }
+      if (ok) { NAV.free[c] = 1; NAV.h[c] = g; break; }
     }
-    NAV.free[i + k * NAV.nx] = ok ? 1 : 0;
   }
 }
 function cellOf(x, z) { return [clamp(Math.floor((x - NAV.x0) / CELL), 0, NAV.nx - 1), clamp(Math.floor((z - NAV.z0) / CELL), 0, NAV.nz - 1)]; }
-function nearestFree(i, k) {
-  if (NAV.free[i + k * NAV.nx]) return [i, k];
-  for (let r = 1; r < 8; r++) for (let di = -r; di <= r; di++) for (let dk = -r; dk <= r; dk++) {
+function nearestFree(i, k, y) {
+  let best = null, bd = 1e9;
+  for (let r = 0; r < 14 && !best; r++) for (let di = -r; di <= r; di++) for (let dk = -r; dk <= r; dk++) {
     const a = i + di, b = k + dk; if (a < 0 || b < 0 || a >= NAV.nx || b >= NAV.nz) continue;
-    if (NAV.free[a + b * NAV.nx]) return [a, b];
+    const c = a + b * NAV.nx; if (!NAV.free[c]) continue;
+    const d = di * di + dk * dk + (y === undefined ? 0 : Math.abs(NAV.h[c] - y) * 4);
+    if (d < bd) { bd = d; best = [a, b]; }
   }
-  return [i, k];
+  return best || [i, k];
 }
-export function randomFreeNear(x, z, r) {
-  for (let t = 0; t < 30; t++) {
-    const px = x + rand(-r, r), pz = z + rand(-r, r); const [i, k] = cellOf(px, pz);
-    if (NAV.free[i + k * NAV.nx]) return new THREE.Vector3(px, 0, pz);
+export function navHeight(x, z) { const [i, k] = cellOf(x, z); return NAV.h ? NAV.h[i + k * NAV.nx] : 0; }
+export function randomFreeNear(x, z, r, maxY = 99, minY = -1) {
+  for (let t = 0; t < 40; t++) {
+    const px = x + rand(-r, r), pz = z + rand(-r, r); const [i, k] = cellOf(px, pz), c = i + k * NAV.nx;
+    if (NAV.free[c] && NAV.h[c] <= maxY && NAV.h[c] >= minY) return new THREE.Vector3(px, NAV.h[c], pz);
   }
   return new THREE.Vector3(x, 0, z);
 }
+const canStep = (a, b) => NAV.h[b] <= NAV.h[a] + 0.55;
 export function findPath(from, to) {
-  const [si, sk] = nearestFree(...cellOf(from.x, from.z));
-  const [gi, gk] = nearestFree(...cellOf(to.x, to.z));
+  const [si, sk] = nearestFree(...cellOf(from.x, from.z), from.y);
+  const [gi, gk] = nearestFree(...cellOf(to.x, to.z), to.y);
   const N = NAV.nx * NAV.nz, start = si + sk * NAV.nx, goal = gi + gk * NAV.nx;
-  const gS = new Float32Array(N).fill(1e9), prev = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
-  const open = [start]; gS[start] = 0;
+  const gS = new Float32Array(N).fill(1e9), prev = new Int32Array(N).fill(-1), closed = new Uint8Array(N), f = new Float32Array(N).fill(1e9);
   const hx = (c) => { const dx = Math.abs(c % NAV.nx - gi), dz = Math.abs((c / NAV.nx | 0) - gk); return Math.max(dx, dz) + 0.414 * Math.min(dx, dz); };
-  const f = new Float32Array(N).fill(1e9); f[start] = hx(start);
-  let iter = 0;
-  while (open.length && iter++ < 6000) {
-    let bi = 0; for (let j = 1; j < open.length; j++) if (f[open[j]] < f[open[bi]]) bi = j;
-    const c = open[bi]; open[bi] = open[open.length - 1]; open.pop();
-    if (c === goal) break;
-    if (closed[c]) continue; closed[c] = 1;
+  // 이진 힙
+  const heap = [];
+  const push = (c) => { heap.push(c); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (f[heap[p]] <= f[heap[i]]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && f[heap[l]] < f[heap[m]]) m = l; if (r < heap.length && f[heap[r]] < f[heap[m]]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  gS[start] = 0; f[start] = hx(start); push(start);
+  let found = false;
+  while (heap.length) {
+    const c = pop(); if (closed[c]) continue; closed[c] = 1;
+    if (c === goal) { found = true; break; }
     const ci = c % NAV.nx, ck = c / NAV.nx | 0;
     for (let di = -1; di <= 1; di++) for (let dk = -1; dk <= 1; dk++) {
       if (!di && !dk) continue;
       const a = ci + di, b = ck + dk; if (a < 0 || b < 0 || a >= NAV.nx || b >= NAV.nz) continue;
-      const n = a + b * NAV.nx; if (!NAV.free[n] || closed[n]) continue;
-      if (di && dk && (!NAV.free[ci + di + ck * NAV.nx] || !NAV.free[ci + (ck + dk) * NAV.nx])) continue;
-      const ng = gS[c] + (di && dk ? 1.414 : 1);
-      if (ng < gS[n]) { gS[n] = ng; prev[n] = c; f[n] = ng + hx(n); open.push(n); }
+      const n = a + b * NAV.nx; if (!NAV.free[n] || closed[n] || !canStep(c, n)) continue;
+      if (di && dk) { const s1 = ci + di + ck * NAV.nx, s2 = ci + (ck + dk) * NAV.nx; if (!NAV.free[s1] || !NAV.free[s2] || Math.abs(NAV.h[s1] - NAV.h[c]) > 0.55 || Math.abs(NAV.h[s2] - NAV.h[c]) > 0.55) continue; }
+      const ng = gS[c] + (di && dk ? 1.414 : 1) + (NAV.h[n] < NAV.h[c] - 0.6 ? 0.5 : 0);
+      if (ng < gS[n]) { gS[n] = ng; prev[n] = c; f[n] = ng + hx(n); push(n); }
     }
   }
-  const cells = [];
-  for (let c = goal; c !== -1; c = prev[c]) { cells.push(c); if (c === start) break; }
-  if (cells[cells.length - 1] !== start) return [to.clone()];
+  if (!found) return [to.clone()];
+  const cells = []; for (let c = goal; c !== -1; c = prev[c]) cells.push(c);
   cells.reverse();
-  const pts = cells.map(c => new THREE.Vector3(NAV.x0 + (c % NAV.nx + 0.5) * CELL, 0, NAV.z0 + ((c / NAV.nx | 0) + 0.5) * CELL));
-  pts.push(to.clone());
-  // 줄 당기기: 보이는 가장 먼 점으로 건너뛰기
-  const out = []; let cur = from.clone().setY(0.7), i = 0;
-  const o2 = new THREE.Vector3(), t2 = new THREE.Vector3();
-  while (i < pts.length - 1) {
-    let j = Math.min(pts.length - 1, i + 14);
-    for (; j > i + 1; j--) {
-      o2.copy(cur); t2.copy(pts[j]).setY(0.7);
-      if (los(o2, t2)) break;
+  const P = (c) => new THREE.Vector3(NAV.x0 + (c % NAV.nx + 0.5) * CELL, NAV.h[c], NAV.z0 + ((c / NAV.nx | 0) + 0.5) * CELL);
+  // 줄 당기기: 같은 높이로 곧게 이어지는 칸끼리만 건너뜀(계단·턱은 지나가게)
+  const flatLine = (a, b) => {
+    const pa = P(a), pb = P(b), L = Math.hypot(pb.x - pa.x, pb.z - pa.z), n = Math.ceil(L / 0.6);
+    for (let t = 1; t < n; t++) {
+      const [i, k] = cellOf(pa.x + (pb.x - pa.x) * t / n, pa.z + (pb.z - pa.z) * t / n), c = i + k * NAV.nx;
+      if (!NAV.free[c] || Math.abs(NAV.h[c] - NAV.h[a]) > 0.05) return false;
     }
-    out.push(pts[j]); cur = pts[j].clone().setY(0.7); i = j;
+    return Math.abs(NAV.h[b] - NAV.h[a]) <= 0.05;
+  };
+  const out = []; let i = 0;
+  while (i < cells.length - 1) {
+    let j = Math.min(cells.length - 1, i + 28);
+    for (; j > i + 1; j--) if (flatLine(cells[i], cells[j])) break;
+    out.push(P(cells[j])); i = j;
   }
-  return out.length ? out : [to.clone()];
+  out.push(to.clone());
+  return out;
 }
 export function navReady() { return !!NAV.free; }

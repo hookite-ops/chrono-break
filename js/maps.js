@@ -1,25 +1,160 @@
-// 맵: 경계 시장 · 정지된 광장
+// 맵: 경계 시장 · 정지된 광장 — 배치는 mapdata.js(맵 설계 데이터), 여기서는 모양·장식을 입힌다
 import * as THREE from 'three';
 import { block, solid, cylinder, sign, clockFace, add, M, W, rand, boxes } from './world.js';
+import { MARKET, SQUARE } from './mapdata.js';
 
 const TEAM_COL = { blue: 0x3db8ff, red: 0xff4d5e };
 const glowO = () => M('#ff8a2a', { e: 0xff7a1a, ei: 2.2 });
+const glowSoft = () => M('#ff9a4a', { e: 0xff7a1a, ei: 1.1 });
+const lit = () => M('#ffcf8a', { e: 0xffa040, ei: 0.55 });
+const unlit = () => M('#3a2f38', { r: 0.4 });
+const dead = () => M('#22252a', { r: 0.3 });
+const SIGNS_P = ['경계시장', '24시 국수', '시계수리', '분식', '복원단', 'TICKET', '노래방', '카페 03:17', '약국', '만두'];
+const SIGNS_F = ['CHRONO LAB', '출입금지', '구역 7', 'SECTOR 0', '봉쇄', 'DANGER'];
+const NEON = ['#ff3d8a', '#35c6c4', '#e9c46a', '#3db8ff', '#b388ff'];
+let rng = 1;
+const rr = () => (rng = (rng * 16807) % 2147483647) / 2147483647;   // 맵마다 같은 장식이 나오게
 
-function spawnGates(gateZ, width, ctx) {
-  for (const t of ['blue', 'red']) {
-    const s = t === 'blue' ? 1 : -1, col = TEAM_COL[t];
-    const ring = new THREE.Mesh(new THREE.RingGeometry(3.5, 4, 48), new THREE.MeshBasicMaterial({ color: col, toneMapped: false, transparent: true, opacity: 0.7 }));
-    ring.rotation.x = -Math.PI / 2; ring.position.set(0, 0.03, (gateZ + 4) * s); add(ring);
-    const gm = new THREE.Mesh(new THREE.BoxGeometry(width, 6, 0.2), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, toneMapped: false, depthWrite: false }));
-    gm.position.set(0, 3, gateZ * s); add(gm);
-    const gb = { min: new THREE.Vector3(-width / 2, 0, gateZ * s - 0.15), max: new THREE.Vector3(width / 2, 6, gateZ * s + 0.15), dyn: true };
-    boxes.push(gb); ctx.gates.push({ mesh: gm, box: gb });
+// ------------------------------------------------------------ 모양 재료
+const MAT = {
+  bldP: ['#5b4b5c', '#6d5a5f', '#634f5e'], bldF: ['#6b6e75', '#5d6067', '#4f5258'],
+  wallP: '#5b4b5c', wallF: '#5d6067', arch: '#4f4150', archTop: '#3a3140',
+  stairs: '#6a5f66', rubble: '#5a5552', terrace: '#6d5a5f', walkP: '#7a5a43', walkF: '#55585f', overpass: '#4a4d54',
+  rail: '#2a2c31', parapet: '#3a3440', crate: '#7a6a55', low: '#6a5a62', stall: '#7a5a43', rubbleBlk: '#3f4248',
+  ruin: '#5b5e64', ledge: '#6d5a5f', plaza: '#4c4552', stage: '#5a5260', core: '#3b3540', pillar: '#5a5560', fountain: '#7c7480',
+  float: '#5a5560', bus: '#e9c46a', wallChunk: '#6a6070', post: '#2a2a2e', roofF: '#4f5258', block: '#6a6070',
+};
+const matFor = (tag) => { const m = MAT[tag] || MAT.block; return M(Array.isArray(m) ? m[Math.floor(rr() * m.length)] : m, tag === 'overpass' || tag === 'rail' ? { m: 0.4, r: 0.5 } : {}); };
+
+function windows(s, future) {
+  // 길 쪽을 보는 두 긴 면에 창문 줄
+  const top = s.y + s.h, faces = s.w >= s.d ? ['z'] : ['x'];
+  for (const ax of faces) for (const side of [-1, 1]) {
+    const len = ax === 'z' ? s.w : s.d;
+    for (let y = s.y + 1.8; y < top - 1.2; y += 2.3) for (let t = -len / 2 + 1.3; t < len / 2 - 1; t += 2.4) {
+      const m = future ? dead() : (rr() < 0.55 ? lit() : unlit());
+      if (ax === 'z') block(s.x + t, y, s.z + side * (s.d / 2 + 0.03), 1.2, 1, 0.05, m, { solid: false, cast: false });
+      else block(s.x + side * (s.w / 2 + 0.03), y, s.z + t, 0.05, 1, 1.2, m, { solid: false, cast: false });
+    }
   }
 }
-function frozenDebris(cx, cz, n, r0, r1, y0, y1, colA = '#6f6870') {
+function signOn(s, future) {
+  // 맵 가운데(x=0) 쪽 면에 간판 하나
+  const side = s.x > 0 ? -1 : 1, list = future ? SIGNS_F : SIGNS_P;
+  const text = list[Math.floor(rr() * list.length)], col = future ? '#ff8a2a' : NEON[Math.floor(rr() * NEON.length)];
+  const w = Math.min(5, Math.max(2.6, text.length * 0.75));
+  if (s.d > 4) sign(s.x + side * (s.w / 2 + 0.06), s.y + Math.min(s.h - 1, 4.2), s.z + (rr() - 0.5) * s.d * 0.4, w, 1.15, side > 0 ? Math.PI / 2 : -Math.PI / 2, text, col, future ? '#0e0e10' : '#120c18', future ? 1 : 0);
+}
+function dress(s, future) {
+  const top = s.y + s.h;
+  switch (s.tag) {
+    case 'bldP': case 'bldF':
+      block(s.x, top, s.z, s.w + 0.4, 0.4, s.d + 0.4, s.tag === 'bldP' ? '#3a3140' : '#3c3f45', { solid: false });
+      windows(s, s.tag === 'bldF');
+      if (rr() < 0.75) signOn(s, s.tag === 'bldF');
+      if (s.tag === 'bldF') for (let k = 0; k < 3; k++) block(s.x + (rr() - 0.5) * s.w * 0.6, top + 0.4, s.z + (rr() - 0.5) * s.d * 0.6, 1 + rr() * 1.5, 0.4 + rr() * 0.8, 1 + rr(), '#3f4248', { solid: false, ry: rr() });
+      break;
+    case 'terrace': case 'ledge': case 'float': case 'walkP': case 'walkF': case 'roofF': case 'ruin':
+      block(s.x, top - 0.06, s.z, s.w + 0.08, 0.08, s.d + 0.08, s.tag === 'walkP' ? '#5d4433' : '#3a3440', { solid: false, cast: false });
+      if (s.tag === 'float') block(s.x, s.y + s.h - 0.5, s.z, s.w + 0.1, 0.06, s.d + 0.1, glowO(), { solid: false, cast: false });
+      if (s.tag === 'terrace') for (let x = s.x - s.w / 2 + 1; x < s.x + s.w / 2; x += 2.5) block(x, top + 2.6, s.z + s.d / 2 - 0.5, 0.1, 0.1, 0.1, M('#ffd28a', { e: 0xffc060, ei: 2 }), { solid: false, cast: false });
+      break;
+    case 'parapet': case 'rail': case 'low':
+      block(s.x, top, s.z, s.w + 0.04, 0.07, s.d + 0.04, glowSoft(), { solid: false, cast: false }); break;
+    case 'overpass':
+      for (let z = s.z - s.d / 2 + 2; z < s.z + s.d / 2; z += 6) { block(s.x - s.w / 2 - 0.25, s.y, z, 0.5, top, 0.8, '#3c3f45', { solid: false }); block(s.x + s.w / 2 + 0.25, s.y, z, 0.5, top, 0.8, '#3c3f45', { solid: false }); }
+      break;
+    case 'stall': {
+      const c = NEON[Math.floor(rr() * NEON.length)];
+      block(s.x, top + 1.3, s.z, s.w + 0.8, 0.1, s.d + 0.8, c, { solid: false });
+      for (const [dx, dz] of [[-1, -1], [1, 1], [-1, 1], [1, -1]]) cylinder(s.x + dx * s.w / 2, top, s.z + dz * s.d / 2, 0.04, 1.3, '#333');
+      for (let k = 0; k < 3; k++) block(s.x + (rr() - 0.5) * s.w * 0.6, top, s.z + (rr() - 0.5) * s.d * 0.6, 0.4, 0.3, 0.4, ['#e76f51', '#e9c46a', '#8ab17d'][k], { solid: false });
+      break;
+    }
+    case 'crate':
+      block(s.x, top, s.z, s.w * 0.6, Math.min(0.5, s.h * 0.4), s.d * 0.6, '#8a7a62', { solid: false, ry: 0.3 }); break;
+    case 'rubbleBlk': case 'rubble':
+      if (rr() < 0.5) for (let k = 0; k < 2; k++) block(s.x + (rr() - 0.5) * s.w, top, s.z + (rr() - 0.5) * s.d, 0.3 + rr() * 0.5, 0.2 + rr() * 0.3, 0.3 + rr() * 0.5, '#8a5a3a', { solid: false, rx: rr(), ry: rr() * 3 });
+      break;
+    case 'pillar': case 'post':
+      block(s.x, top, s.z, s.w + 0.2, 0.25, s.d + 0.2, glowO(), { solid: false, cast: false }); break;
+    case 'bus':
+      for (let z = s.z - s.d / 2 + 1; z < s.z + s.d / 2 - 0.5; z += 1.6) for (const sd of [-1, 1]) block(s.x + sd * (s.w / 2 + 0.03), s.y + 1.6, z, 0.05, 0.9, 1.2, '#1d2a33', { solid: false, cast: false });
+      block(s.x, top, s.z, s.w - 0.2, 0.15, s.d - 0.4, '#d9b45a', { solid: false });
+      break;
+  }
+}
+
+function buildFromData(D, ctx, theme) {
+  rng = theme.seed;
+  const B = D.bounds; W.bounds = { x0: B.x[0], x1: B.x[1], z0: B.z[0], z1: B.z[1] };
+  const X0 = B.x[0], X1 = B.x[1], Z0 = B.z[0], Z1 = B.z[1];
+  // 바닥: 왼쪽 현재(따뜻한 아스팔트) / 오른쪽 미래(차가운 콘크리트), 4 m 타일
+  for (let x = X0; x < X1; x += 8) for (let z = Z0; z < Z1; z += 8) {
+    const fut = theme.split(x + 4, z + 4) > 0, alt = ((x + z) / 8) & 1;
+    block(x + 4, -1, z + 4, 8, 1, 8, fut ? (alt ? '#55585f' : '#4f5258') : (alt ? '#3d3540' : '#43394a'), { cast: false });
+  }
+  // 시간 단층선(빛나는 균열)
+  for (const [x, z, ry] of theme.fault()) block(x, 0, z, 0.24, 0.03, 3.2, glowO(), { solid: false, ry, cast: false });
+  // 바깥 벽: 건물 정면
+  for (let z = Z0; z < Z1; z += 10) {
+    const fL = theme.split(X0, z + 5) > 0, fR = theme.split(X1, z + 5) > 0;
+    const hL = 10 + rr() * 4, hR = 9 + rr() * 4;
+    const l = { x: X0 - 1.5, z: z + 5, w: 3, d: 10, h: hL, y: 0, tag: fL ? 'bldF' : 'bldP' }, r = { x: X1 + 1.5, z: z + 5, w: 3, d: 10, h: hR, y: 0, tag: fR ? 'bldF' : 'bldP' };
+    for (const s of [l, r]) { block(s.x, 0, s.z, s.w, s.h, s.d, matFor(s.tag)); block(s.x, s.h, s.z, s.w + 0.4, 0.4, s.d + 0.4, '#3a3140', { solid: false }); }
+    // 안쪽 면 창문
+    for (let y = 2; y < Math.min(hL, hR) - 1; y += 2.4) for (let t = z + 1.5; t < z + 9; t += 2.5) {
+      block(X0 + 0.03, y, t, 0.05, 1, 1.2, fL ? dead() : (rr() < 0.5 ? lit() : unlit()), { solid: false, cast: false });
+      block(X1 - 0.03, y, t, 0.05, 1, 1.2, fR ? dead() : (rr() < 0.5 ? lit() : unlit()), { solid: false, cast: false });
+    }
+  }
+  for (const z of [Z0 - 1.5, Z1 + 1.5]) block(0, 0, z, X1 - X0 + 6, 11, 3, '#4b4352');
+  // 설계 데이터 → 충돌 상자 + 모양
+  for (const s of D.solids) {
+    const y = s.y || 0, future = theme.split(s.x, s.z) > 0;
+    let tag = s.tag;
+    if ((tag === 'stairs' || tag === 'low' || tag === 'crate') && future && rr() < 0.3) tag = tag === 'stairs' ? 'stairs' : 'rubbleBlk';
+    if (s.type === 'cyl') {
+      cylinder(s.x, y, s.z, s.r, s.h, matFor(tag), { seg: 40 });
+      // 원기둥 충돌: 십자·정사각 상자 세 개로 근사
+      const r = s.r;
+      solid(s.x - r * 0.92, y, s.z - r * 0.55, s.x + r * 0.92, y + s.h, s.z + r * 0.55);
+      solid(s.x - r * 0.55, y, s.z - r * 0.92, s.x + r * 0.55, y + s.h, s.z + r * 0.92);
+      solid(s.x - r * 0.78, y, s.z - r * 0.78, s.x + r * 0.78, y + s.h, s.z + r * 0.78);
+      if (tag === 'plaza' || tag === 'stage') { const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.06, 6, 80), new THREE.MeshBasicMaterial({ color: 0xffa050, toneMapped: false })); ring.rotation.x = Math.PI / 2; ring.position.set(s.x, y + s.h + 0.02, s.z); add(ring); }
+      continue;
+    }
+    if (tag === 'post') { block(s.x, y, s.z, s.w * 0.35, s.h, s.d * 0.35, matFor(tag)); dress({ ...s, w: s.w * 0.35, d: s.d * 0.35 }, future); continue; }
+    block(s.x, y, s.z, s.w, s.h, s.d, matFor(tag));
+    dress({ ...s, y, tag: tag === 'bldP' && future ? 'bldF' : tag === 'bldF' && !future ? 'bldP' : tag }, future);
+  }
+  // 거점 크리스탈 + 빛
+  const cy = theme.coreY;
+  const c = new THREE.Mesh(new THREE.OctahedronGeometry(0.9, 0), new THREE.MeshStandardMaterial({ color: 0xffa050, emissive: 0xff7a1a, emissiveIntensity: 2.5, roughness: 0.2 }));
+  c.position.set(0, cy, 0); add(c); ctx.core = c; ctx.coreY = cy;
+  const l = new THREE.PointLight(0xff8a2a, 40, 20, 1.6); l.position.set(0, cy + 0.2, 0); add(l);
+  // 출발 구역 문(준비 시간 동안 막힘)
+  for (const t of ['blue', 'red']) {
+    const s = t === 'blue' ? 1 : -1, col = TEAM_COL[t], gz = ctx.def.gateZ * s;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(3.5, 4, 48), new THREE.MeshBasicMaterial({ color: col, toneMapped: false, transparent: true, opacity: 0.7 }));
+    ring.rotation.x = -Math.PI / 2; ring.position.set(0, 0.03, ctx.def.spawnZ * s); add(ring);
+    const w = ctx.def.spawnHalfW * 2;
+    const gm = new THREE.Mesh(new THREE.BoxGeometry(w, 6, 0.2), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, toneMapped: false, depthWrite: false }));
+    gm.position.set(0, 3, gz - s * 0.8); add(gm);
+    const gb = { min: new THREE.Vector3(-w / 2, 0, gz - s * 0.8 - 0.15), max: new THREE.Vector3(w / 2, 6, gz - s * 0.8 + 0.15), dyn: true };
+    boxes.push(gb); ctx.gates.push({ mesh: gm, box: gb });
+    // 출발 구역 안 시계(03:17)
+    clockFace(0, 4.5, s > 0 ? Z1 - 0.06 : Z0 + 0.06, 1.3, s > 0 ? Math.PI : 0);
+  }
+  for (const p of D.pickups) ctx.packs.push([p.x, null, p.z]);
+  theme.extra(ctx);
+}
+
+// ------------------------------------------------------------ 공중에 멈춘 것들
+function frozenDebris(cx, cz, n, r0, r1, y0, y1, col = '#6f6870') {
   for (let i = 0; i < n; i++) {
-    const a = rand(0, Math.PI * 2), r = rand(r0, r1), s = rand(0.12, 0.55);
-    block(cx + Math.cos(a) * r, rand(y0, y1), cz + Math.sin(a) * r, s, s * rand(0.3, 1), s, i % 5 ? colA : glowO(), { solid: false, rx: rand(0, 3), ry: rand(0, 3), rz: rand(0, 3) });
+    const a = rand(0, Math.PI * 2), r = rand(r0, r1), s = rand(0.12, 0.6);
+    block(cx + Math.cos(a) * r, rand(y0, y1), cz + Math.sin(a) * r, s, s * rand(0.3, 1), s, i % 5 ? col : glowO(), { solid: false, rx: rand(0, 3), ry: rand(0, 3), rz: rand(0, 3) });
   }
 }
 function car(x, y, z, rx, ry, rz, col = '#2f8f94', len = 4) {
@@ -30,194 +165,53 @@ function car(x, y, z, rx, ry, rz, col = '#2f8f94', len = 4) {
   for (const [wx, wz] of [[-len * 0.33, 1], [len * 0.33, 1], [-len * 0.33, -1], [len * 0.33, -1]]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 14), M('#18181b')); w.rotation.x = Math.PI / 2; w.position.set(wx, 0.1, wz); g.add(w); }
   g.position.set(x, y, z); g.rotation.set(rx, ry, rz);
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  add(g); return g;
-}
-function core(ctx, x, y, z) {
-  const c = new THREE.Mesh(new THREE.OctahedronGeometry(0.8, 0), new THREE.MeshStandardMaterial({ color: 0xffa050, emissive: 0xff7a1a, emissiveIntensity: 2.5, roughness: 0.2 }));
-  c.position.set(x, y, z); add(c); ctx.core = c; ctx.coreY = y;
-  const l = new THREE.PointLight(0xff8a2a, 30, 16, 1.6); l.position.set(x, y + 0.1, z); add(l);
-}
-function pack(ctx, x, y, z) { ctx.packs.push([x, y, z]); }
-
-// ================================================================ 1. 경계 시장
-function buildMarket(ctx) {
-  W.bounds = { x0: -32, x1: 32, z0: -46, z1: 46 };
-  const PRES = { ground: '#3d3540', wall: '#5b4b5c', wall2: '#6d5a5f', wood: '#7a5a43', awning: ['#2f8f94', '#ff3d8a', '#e9c46a', '#3d7bd9'] };
-  const FUT = { ground: '#55585f', wall: '#6b6e75', dark: '#3f4248', rust: '#8a5a3a' };
-  block(-18, -1, 0, 36, 1, 100, PRES.ground); block(18, -1, 0, 36, 1, 100, FUT.ground);
-  for (let z = -46; z < 46; z += 3) block(Math.sin(z * 0.7) * 0.35, 0, z + 1.5, 0.22, 0.03, 3.2, glowO(), { solid: false, ry: Math.sin(z) * 0.2, cast: false });
-  for (let z = -46; z < 46; z += 8) {
-    const hh = 9 + (Math.abs(z * 7) % 5);
-    block(-33.5, 0, z + 4, 3, hh, 8, z % 16 === 0 ? PRES.wall : PRES.wall2);
-    block(33.5, 0, z + 4, 3, hh - 1 + Math.sin(z) * 2, 8, z % 16 === 0 ? FUT.wall : FUT.dark);
-  }
-  block(0, 0, 47.5, 70, 10, 3, '#4b4352'); block(0, 0, -47.5, 70, 10, 3, '#4b4352');
-  const segs = [[-37, -27], [-23, -14], [-10, 10], [14, 23], [27, 37]];
-  for (const [z0, z1] of segs) {
-    const cz = (z0 + z1) / 2, d = z1 - z0, tall = Math.abs(cz) < 1 ? 7.5 : 6;
-    block(-11, 0, cz, 6, tall, d, PRES.wall); block(-11, tall, cz, 6.4, 0.4, d + 0.4, '#3a3140');
-    block(11, 0, cz, 6, tall - 0.5, d, FUT.wall);
-    for (let k = 0; k < 3; k++) block(11 + rand(-2, 2), tall - 0.5, cz + rand(-d / 3, d / 3), rand(1, 2.4), rand(0.4, 1.2), rand(1, 2), FUT.dark, { solid: false, ry: rand(0, 1) });
-    const lit = M('#ffcf8a', { e: 0xffa040, ei: 0.55 }), unlit = M('#3a2f38', { r: 0.4 }), dead = M('#22252a', { r: 0.3 });
-    for (let y = 1.8; y < tall - 1; y += 2.2) for (let wz = z0 + 1.2; wz < z1 - 1; wz += 2.2) {
-      if (Math.abs(wz) < 2.5 && Math.abs(cz) < 1) continue;
-      block(-7.98, y, wz, 0.05, 1, 1.2, Math.random() < 0.55 ? lit : unlit, { solid: false, cast: false });
-      block(-14.02, y, wz, 0.05, 1, 1.2, Math.random() < 0.5 ? lit : unlit, { solid: false, cast: false });
-      block(7.98, y, wz, 0.05, 1, 1.2, dead, { solid: false, cast: false });
-      block(14.02, y, wz, 0.05, 1, 1.2, dead, { solid: false, cast: false });
-    }
-  }
-  clockFace(-7.9, 4.6, 0, 1.6, Math.PI / 2); clockFace(7.9, 4.1, 0, 1.6, -Math.PI / 2, true);
-  clockFace(-31.94, 6.5, 20, 1.2, Math.PI / 2); clockFace(31.94, 6, -22, 1.2, -Math.PI / 2, true);
-  // 왼쪽: 현재의 시장 골목
-  for (let z = -34; z <= 34; z += 7) {
-    if (Math.abs(z) < 3) continue;
-    const c = PRES.awning[(z / 7 + 10 | 0) % 4];
-    block(-30, 0, z, 2.6, 1.1, 4.2, PRES.wood); block(-30.4, 1.1, z, 1.6, 1.4, 4.2, PRES.wall2, { solid: false });
-    block(-29.2, 2.6, z, 3.6, 0.12, 4.6, c, { rz: -0.25, solid: false });
-    for (let k = 0; k < 4; k++) block(-29.3 + rand(-0.6, 0.6), 1.1, z + rand(-1.6, 1.6), 0.45, 0.35, 0.45, ['#e76f51', '#e9c46a', '#8ab17d', '#f4a261'][k], { solid: false });
-  }
-  for (const [x, z] of [[-19.5, -31], [-20, -18], [-19.5, 6], [-19.5, -6], [-20, 18], [-19.5, 31]]) {
-    block(x, 0, z, 2.2, 1.2, 3, PRES.wood); block(x, 1.2, z, 2.6, 0.1, 3.4, PRES.awning[Math.abs(z) % 4], { solid: false });
-    cylinder(x - 1.1, 1.2, z - 1.5, 0.05, 1.6, '#333'); cylinder(x + 1.1, 1.2, z + 1.5, 0.05, 1.6, '#333');
-  }
-  sign(-31.9, 5.2, -14, 5, 1.3, Math.PI / 2, '경계시장', '#ff3d8a'); sign(-31.9, 4.6, 12, 4, 1.2, Math.PI / 2, '24시 국수', '#35c6c4');
-  sign(-31.9, 5, 27, 3.2, 1.1, Math.PI / 2, '시계수리', '#e9c46a'); sign(-14.05, 3.6, -31, 3.4, 1, -Math.PI / 2, 'TICKET', '#3db8ff');
-  sign(-14.05, 3.6, 31, 3.4, 1, -Math.PI / 2, '분식', '#ff3d8a');
-  sign(-7.95, 2.8, -18.5, 2.6, 0.8, Math.PI / 2, '복원단', '#3db8ff', '#0b1520'); sign(-7.95, 2.8, 18.5, 2.6, 0.8, Math.PI / 2, '균열단', '#ff4d5e', '#200b0f');
-  for (let z = -30; z <= 30; z += 10) {
-    block(-23, 5, z, 18, 0.03, 0.03, '#222', { solid: false, cast: false });
-    for (let x = -30; x < -15; x += 3) block(x, 4.8, z, 0.25, 0.25, 0.25, M('#ffd28a', { e: 0xffc060, ei: 2 }), { solid: false, cast: false });
-  }
-  // 가운데: 거점 광장
-  cylinder(0, 0, 0, ctx.pointR + 0.3, 0.3, '#4c4552', { seg: 40 }); solid(-ctx.pointR, 0, -ctx.pointR, ctx.pointR, 0.3, ctx.pointR);
-  for (const [x, z, w, d] of [[-5, 9, 4, 1], [5, -9, 4, 1], [5, 9, 1, 3], [-5, -9, 1, 3], [-3.5, 18, 3, 1], [3.5, -18, 3, 1], [3, 26, 1.2, 1.2], [-3, -26, 1.2, 1.2]]) {
-    block(x, 0, z, w, 1.25, d, x < 0 ? '#6a5a62' : '#62666e'); block(x, 1.25, z, w + 0.1, 0.08, d + 0.1, glowO(), { solid: false, cast: false });
-  }
-  for (const [x, z, s] of [[2.6, -5.2, 1.2], [-2.6, 5.2, 1.2], [-6.5, -20, 1.3], [6.5, 20, 1.3], [0, 31, 1], [0, -31, 1]]) {
-    block(x, 0, z, s, s, s, '#7a6a55'); block(x + 0.1, s, z + 0.1, s * 0.7, s * 0.7, s * 0.7, '#8a7a62', { ry: 0.3 });
-  }
-  for (const [x, y, z, w, h, d, rz] of [[3.6, 2.1, -3.2, 3.2, 0.35, 2.4, 0.06], [-3.6, 2.1, 3.2, 3.2, 0.35, 2.4, -0.07]]) {
-    block(x, y, z, w, h, d, '#5a5560', { rz }); block(x, y - 0.06, z, w + 0.06, 0.06, d + 0.06, glowO(), { solid: false, rz, cast: false });
-  }
-  car(0.5, 5.2, 1.5, 0.35, 0.6, -0.5);
-  frozenDebris(0, 0, 70, 2, 9, 2.6, 8);
-  core(ctx, 0, 3.1, 0);
-  // 오른쪽: 미래의 폐허와 높은 통로
-  block(25, 3.2, 0, 6, 0.4, 30, FUT.dark);
-  for (let s = 0; s < 8; s++) {
-    const y = s * 0.4;
-    block(25, 0, 15 + 0.9 * (8 - s) - 0.45, 3, y + 0.4, 0.9, FUT.wall); block(25, 0, -15 - 0.9 * (8 - s) + 0.45, 3, y + 0.4, 0.9, FUT.wall);
-  }
-  for (let z = -12; z <= 12; z += 8) { cylinder(22.4, 0, z, 0.35, 3.2, FUT.dark, { solid: true }); cylinder(27.6, 0, z, 0.35, 3.2, FUT.dark, { solid: true }); }
-  for (let z = -14.5; z <= 14.5; z += 1) { if (Math.abs(z) < 3) continue; block(22.1, 3.6, z, 0.12, 0.9, 1, FUT.rust, { solid: false }); }
-  block(22.1, 3.6, 0, 0.15, 1.0, 30, M('#ff8a2a', { e: 0xff7a1a, ei: 1.2 }), { solid: false, cast: false });
-  solid(21.95, 3.6, -15, 22.25, 4.5, -3); solid(21.95, 3.6, 3, 22.25, 4.5, 15);
-  for (const [x, z, w, h, d] of [[30, -30, 3, 2.2, 4], [30, -8, 2.4, 1.4, 3], [30.5, 8, 3, 2.4, 3.5], [30, 30, 3, 1.6, 4], [17, -30, 2, 1.3, 2], [17.5, 31, 2.2, 1.5, 2], [16.5, -5, 1.2, 1.2, 2.4], [16.5, 5, 1.2, 1.2, 2.4]]) {
-    block(x, 0, z, w, h, d, FUT.dark, { ry: rand(-0.2, 0.2) });
-    for (let k = 0; k < 4; k++) block(x + rand(-w, w) * 0.6, h * rand(0.2, 0.9), z + rand(-d, d) * 0.6, rand(0.3, 0.8), rand(0.2, 0.5), rand(0.3, 0.8), FUT.rust, { solid: false, rx: rand(0, 1), ry: rand(0, 3) });
-  }
-  for (let z = -36; z <= 36; z += 12) block(32, 0, z, 1.6, rand(3, 6), 0.5, FUT.wall, { rz: rand(-0.15, 0.15) });
-  sign(31.9, 5.5, -2, 4.4, 1.2, -Math.PI / 2, 'CHRONO LAB', '#ff8a2a', '#0e0e10', 1);
-  sign(14.05, 3.4, 31, 3, 1, Math.PI / 2, '출입금지', '#ff8a2a', '#0e0e10', 1);
-  sign(14.05, 3.4, -31, 3, 1, Math.PI / 2, '구역 7', '#ff8a2a', '#0e0e10', 1);
-  spawnGates(37.5, 64, ctx);
-  for (const s of [1, -1]) { block(-20, 0, 44 * s, 6, 2.4, 2, '#3a3440'); block(20, 0, 44 * s, 6, 2.4, 2, '#3a3440'); }
-  for (const p of [[-24, 0, 0], [18, 0, 0], [0, 0, 23], [0, 0, -23], [25, 3.6, 0]]) pack(ctx, ...p);
-}
-
-// ================================================================ 2. 정지된 광장
-// 폭발이 터지는 순간에 그대로 멈춘 광장. 위쪽(+z, 파랑 출발)은 현재, 아래쪽(-z)은 미래가 대각선으로 갈림.
-function buildSquare(ctx) {
-  W.bounds = { x0: -30, x1: 30, z0: -44, z1: 44 };
-  const P = { a: '#45394a', b: '#4f4253', wall: '#6a5560', trim: '#3a2f3a' }, F = { a: '#575b62', b: '#4c5057', wall: '#70737a', dark: '#3c3f45', rust: '#8a5a3a' };
-  // 바닥: 4m 타일, 대각선(x - z)으로 시대가 갈림
-  for (let x = -30; x < 30; x += 4) for (let z = -44; z < 44; z += 4) {
-    const fut = (x + 2) - (z + 2) * 0.6 > 0;
-    block(x + 2, -1, z + 2, 4, 1, 4, ((x + z) / 4) % 2 ? (fut ? F.a : P.a) : (fut ? F.b : P.b), { cast: false });
-  }
-  // 단층선(대각선 빛)
-  for (let t = -48; t < 48; t += 2.5) {
-    const x = t * 0.52, z = t * 0.86;
-    if (Math.abs(x) < 30 && Math.abs(z) < 44) block(x + Math.sin(t) * 0.3, 0, z, 0.25, 0.03, 2.8, glowO(), { solid: false, ry: 0.54, cast: false });
-  }
-  // 외벽
-  for (let z = -44; z < 44; z += 8) {
-    const fut = z < 0;
-    block(-31.5, 0, z + 4, 3, 8 + (Math.abs(z) % 3), 8, fut ? F.wall : P.wall);
-    block(31.5, 0, z + 4, 3, 8 + (Math.abs(z * 3) % 4), 8, fut ? F.dark : P.wall);
-  }
-  block(0, 0, 45.5, 66, 10, 3, P.trim); block(0, 0, -45.5, 66, 10, 3, F.dark);
-  // 광장을 둘러싼 네 덩이 건물(ㄱ자) — 길: 가운데 대로, 양옆 골목, 대각 통로
-  const bld = (x, z, w, d, h, fut) => {
-    block(x, 0, z, w, h, d, fut ? F.wall : P.wall);
-    block(x, h, z, w + 0.4, 0.4, d + 0.4, fut ? F.dark : P.trim);
-    const lit = M('#ffcf8a', { e: 0xffa040, ei: 0.5 }), dead = M('#22252a', { r: 0.3 });
-    for (let y = 1.8; y < h - 1; y += 2.3) for (let k = -w / 2 + 1.2; k < w / 2 - 1; k += 2.4) {
-      block(x + k, y, z + d / 2 + 0.03, 1.2, 1, 0.05, fut ? dead : (Math.random() < 0.6 ? lit : M('#3a2f38')), { solid: false, cast: false });
-      block(x + k, y, z - d / 2 - 0.03, 1.2, 1, 0.05, fut ? dead : (Math.random() < 0.6 ? lit : M('#3a2f38')), { solid: false, cast: false });
-    }
-  };
-  for (const s of [1, -1]) {
-    const fut = s < 0;
-    bld(-17, 22 * s, 12, 8, 7, fut); bld(17, 22 * s, 12, 8, 7.5, fut);
-    bld(-22, 9 * s, 6, 8, 6, fut); bld(22, 9 * s, 6, 8, 6, fut);
-    bld(-10, 31 * s, 6, 5, 5, fut); bld(10, 31 * s, 6, 5, 5, fut);
-  }
-  // 대로 위 육교(위로 지나감 — 아래는 통행)
-  for (const s of [1, -1]) {
-    block(0, 4.2, 22 * s, 22, 0.5, 3, s > 0 ? '#5d4c58' : F.dark);
-    for (let x = -10; x <= 10; x += 2) block(x, 4.7, 22 * s + 1.4, 0.1, 0.9, 0.1, '#2a2a2e', { solid: false });
-    sign(0, 5.6, 22 * s - 1.55 * s, 6, 1.3, s > 0 ? 0 : Math.PI, s > 0 ? '정지된 광장' : 'SECTOR 0', s > 0 ? '#ff3d8a' : '#ff8a2a', '#100c14', s < 0 ? 1 : 0);
-  }
-  // 거점: 부서진 분수 + 둘러싼 낮은 벽
-  cylinder(0, 0, 0, ctx.pointR + 0.4, 0.3, '#4c4552', { seg: 48 }); solid(-ctx.pointR, 0, -ctx.pointR, ctx.pointR, 0.3, ctx.pointR);
-  cylinder(0, 0.3, 0, 1.9, 0.9, '#7c7480', { seg: 24, solid: true });
-  cylinder(0, 1.2, 0, 1.6, 0.1, M('#59c3d9', { r: 0.1, m: 0.2, e: 0x1b5f80, ei: 0.4 }), { seg: 24 });
-  // 물줄기가 솟구치다 멈춤(빛나는 물기둥)
-  for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; cylinder(Math.cos(a) * 0.7, 1.2, Math.sin(a) * 0.7, 0.08, rand(1.5, 3), M('#9fe6ff', { e: 0x4fbfff, ei: 1.4, t: 0.7 }), { rt: 0.02, rx: Math.cos(a) * 0.3, rz: -Math.sin(a) * 0.3, cast: false }); }
-  for (const a of [0.4, 1.95, 3.5, 5.05]) {
-    const x = Math.cos(a) * 8.5, z = Math.sin(a) * 8.5;
-    block(x, 0, z, 3.4, 1.2, 1, '#6a6070', { ry: -a + Math.PI / 2 });
-    block(x, 1.2, z, 3.5, 0.08, 1.1, glowO(), { solid: false, ry: -a + Math.PI / 2, cast: false });
-  }
-  // 상자 → 공중 발판(높이 싸움)
-  for (const [x, z] of [[-8, -3], [8, 3], [-3, 12], [3, -12]]) { block(x, 0, z, 1.2, 1.2, 1.2, '#7a6a55'); block(x + 0.1, 1.2, z, 0.8, 0.6, 0.8, '#8a7a62', { ry: 0.4 }); }
-  for (const [x, y, z, w, d] of [[-9.5, 2.3, -5.5, 3.5, 3], [9.5, 2.3, 5.5, 3.5, 3], [-5, 2.4, 13.5, 3, 3], [5, 2.4, -13.5, 3, 3]]) {
-    block(x, y, z, w, 0.35, d, '#5a5560', { rz: rand(-0.06, 0.06) }); block(x, y - 0.06, z, w + 0.06, 0.06, d + 0.06, glowO(), { solid: false, cast: false });
-  }
-  // 멈춘 폭발: 중심에서 뻗어나가는 파편 구름 + 충격파 껍질 + 공중의 버스
-  frozenDebris(0, 0, 160, 3, 14, 3, 12);
-  const shell = new THREE.Mesh(new THREE.SphereGeometry(13, 40, 20), new THREE.MeshBasicMaterial({ color: 0xff9a4a, transparent: true, opacity: 0.06, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
-  shell.position.set(0, 4, 0); add(shell); ctx.shell = shell;
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(13, 0.08, 6, 96), new THREE.MeshBasicMaterial({ color: 0xffa050, toneMapped: false }));
-  ring.rotation.x = Math.PI / 2; ring.position.set(0, 4, 0); add(ring);
-  car(-12, 6.5, -1, 0.5, 1.2, 0.9, '#e9c46a', 7);
-  car(13, 5.2, -3, -0.6, 0.3, 0.3, '#3d7bd9');
-  car(4, 8.5, 14, 1.1, -0.4, 0.2, '#ff3d8a');
-  core(ctx, 0, 4.2, 0);
-  // 시계탑(광장 옆, 03:17)
-  block(-26.5, 0, -1, 3, 14, 3, P.wall); clockFace(-24.95, 11, -1, 1.3, Math.PI / 2);
-  block(26.5, 0, 1, 3, 12, 3, F.dark); clockFace(24.95, 9.5, 1, 1.3, -Math.PI / 2, true);
-  // 골목 소품
-  for (let z = -30; z <= 30; z += 10) {
-    if (Math.abs(z) < 5) continue;
-    block(-27.5, 0, z, 2, 1, 3, z > 0 ? '#7a5a43' : F.dark);
-    block(27.5, 0, z + 3, 2, 1.3, 2, z > 0 ? '#7a5a43' : F.rust);
-  }
-  sign(-29.95, 4.5, 30, 3.6, 1.1, Math.PI / 2, '분수 카페', '#35c6c4'); sign(29.95, 4.5, 30, 3.4, 1.1, -Math.PI / 2, '시계점', '#e9c46a');
-  sign(-29.95, 4.5, -30, 3.6, 1.1, Math.PI / 2, '봉쇄 구역', '#ff8a2a', '#0e0e10', 1);
-  spawnGates(35.5, 60, ctx);
-  for (const p of [[-20, 0, 0], [20, 0, 0], [0, 0, 28], [0, 0, -28], [-9.5, 2.65, -5.5]]) pack(ctx, ...p);
+  add(g);
 }
 
 export const MAPS = {
   market: {
-    name: '경계 시장', sub: '시장 골목 · 거점 광장 · 폐허 통로', lore: '시장 거리 한가운데로 시간 단층선이 지나간다. 왼쪽은 아직 장사 중인 현재, 오른쪽은 녹슨 미래.',
-    spawnZ: 41, gateZ: 37.5, pointR: 6, fogNear: 40, fogFar: 140, build: buildMarket, sun: [-30, 45, 20],
+    name: '경계 시장', sub: '시장 테라스 · 고가도로 · 아치 문', lore: '시장 거리 한가운데로 시간 단층선이 지나간다. 왼쪽은 아직 장사 중인 현재, 오른쪽은 녹슨 미래. 거점은 시계가 멈춘 낮은 광장.',
+    spawnZ: 82, gateZ: 74, spawnHalfW: 22, pointR: 8, fogNear: 60, fogFar: 210, sun: [-60, 95, 40],
+    perches: [{ x: -26, y: 3.6, z: 14 }, { x: -27, y: 3.6, z: 18 }, { x: 33, y: 4.2, z: 22 }, { x: 33, y: 4.2, z: 30 }, { x: 10, y: 2.0, z: 16.5 }, { x: -10, y: 2.0, z: 16.5 }, { x: 19, y: 2.4, z: 13 }],
+    vias: [{ x: -40, z: 46 }, { x: -26, z: 14, y: 3.6 }, { x: 0, z: 40 }, { x: 0, z: 36 }, { x: 33, z: 35, y: 4.2 }, { x: 44, z: 36 }],
+    build(ctx) {
+      buildFromData(MARKET, ctx, {
+        seed: 7, coreY: 5.0, split: (x) => x,
+        fault: () => { const o = []; for (let z = -88; z < 88; z += 3) o.push([Math.sin(z * 0.7) * 0.35, z + 1.5, Math.sin(z) * 0.2]); return o; },
+        extra() {
+          clockFace(0, 4.6, 33.05, 1.5, 0); clockFace(0, 4.6, -33.05, 1.5, Math.PI, true);
+          car(1, 7.5, 2, 0.35, 0.6, -0.5); car(-6, 9.5, -4, -0.4, 2.1, 0.3, '#ff3d8a');
+          frozenDebris(0, 0, 90, 3, 12, 5.5, 11);
+          // 시장 위 전선과 등
+          for (let z = -60; z <= 60; z += 15) { block(-40, 5.6, z, 30, 0.03, 0.03, '#222', { solid: false, cast: false }); for (let x = -54; x < -26; x += 3) block(x, 5.4, z, 0.25, 0.25, 0.25, M('#ffd28a', { e: 0xffc060, ei: 2 }), { solid: false, cast: false }); }
+        },
+      });
+    },
   },
   square: {
-    name: '정지된 광장', sub: '멈춘 폭발 · 공중 발판 · 높이 싸움', lore: '크로노 코어가 폭주한 순간, 광장에서 터지던 폭발이 그대로 굳었다. 파편과 버스가 아직 공중에 떠 있다.',
-    spawnZ: 39.5, gateZ: 35.5, pointR: 6.5, fogNear: 36, fogFar: 130, build: buildSquare, sun: [25, 40, -25],
+    name: '정지된 광장', sub: '분수 무대 · 잔해 발판 · 멈춘 버스', lore: '크로노 코어가 폭주한 순간, 광장에서 터지던 폭발이 그대로 굳었다. 분수 무대를 공중에 멈춘 잔해 발판들이 둘러싸고 있다.',
+    spawnZ: 71, gateZ: 64, spawnHalfW: 20, pointR: 7, fogNear: 55, fogFar: 190, sun: [55, 85, -50],
+    perches: [{ x: -14, y: 3.0, z: 12 }, { x: 14, y: 3.0, z: 12 }, { x: -17, y: 2.0, z: 1 }, { x: 17, y: 2.0, z: 1 }, { x: 41, y: 2.8, z: 31 }, { x: -43.5, y: 3.4, z: 30 }],
+    vias: [{ x: -43, z: 39, y: 3.4 }, { x: -30, z: 40 }, { x: 0, z: 36 }, { x: 0, z: 50 }, { x: 41, z: 36, y: 2.8 }, { x: 30, z: 40 }, { x: -14, z: 12, y: 3.0 }],
+    build(ctx) {
+      buildFromData(SQUARE, ctx, {
+        seed: 11, coreY: 4.2, split: (x, z) => x - z * 0.55,
+        fault: () => { const o = []; for (let t = -90; t < 90; t += 2.6) { const x = t * 0.48, z = t * 0.88; if (Math.abs(x) < 47 && Math.abs(z) < 77) o.push([x + Math.sin(t) * 0.3, z, 0.5]); } return o; },
+        extra(ctx) {
+          // 솟구치다 멈춘 분수 물줄기
+          for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; cylinder(Math.cos(a) * 0.8, 2.0, Math.sin(a) * 0.8, 0.08, rand(1.5, 3), M('#9fe6ff', { e: 0x4fbfff, ei: 1.4, t: 0.7 }), { rt: 0.02, rx: Math.cos(a) * 0.3, rz: -Math.sin(a) * 0.3, cast: false }); }
+          // 멈춘 폭발: 충격파 껍질 + 파편 + 공중의 차들
+          const shell = new THREE.Mesh(new THREE.SphereGeometry(16, 40, 20), new THREE.MeshBasicMaterial({ color: 0xff9a4a, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
+          shell.position.set(0, 5, 0); add(shell); ctx.shell = shell;
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(16, 0.08, 6, 120), new THREE.MeshBasicMaterial({ color: 0xffa050, toneMapped: false }));
+          ring.rotation.x = Math.PI / 2; ring.position.set(0, 5, 0); add(ring);
+          frozenDebris(0, 0, 170, 4, 17, 6, 15);
+          car(-12, 9, -3, 0.5, 1.2, 0.9, '#e9c46a', 7); car(13, 8.2, -5, -0.6, 0.3, 0.3, '#3d7bd9'); car(5, 11, 14, 1.1, -0.4, 0.2, '#ff3d8a');
+          // 시계탑(03:17)
+          block(-46, 0, -2, 3, 15, 3, '#5b4b5c'); clockFace(-44.45, 12, -2, 1.3, Math.PI / 2);
+          block(46, 0, 2, 3, 13, 3, '#3c3f45'); clockFace(44.45, 10.5, 2, 1.3, -Math.PI / 2, true);
+        },
+      });
+    },
   },
 };

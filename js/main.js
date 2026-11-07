@@ -42,7 +42,7 @@ const vmSun = new THREE.DirectionalLight(0xffffff, 1.6); vmSun.position.set(1, 2
 scene.add(new THREE.HemisphereLight(0xffd9c2, 0x2b2436, 1.35));
 const sun = new THREE.DirectionalLight(0xffc49a, 2.4);
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -50, right: 50, top: 55, bottom: -55, near: 1, far: 160 });
+Object.assign(sun.shadow.camera, { left: -80, right: 80, top: 105, bottom: -105, near: 1, far: 320 });
 sun.shadow.bias = -0.0006;
 scene.add(sun); scene.add(sun.target);
 
@@ -117,7 +117,8 @@ function loadMap(id) {
   scene.fog.near = def.fogNear; scene.fog.far = def.fogFar;
   sun.position.set(...def.sun); sun.target.position.set(0, 0, 0);
   packs.length = 0;
-  for (const [x, y, z] of ctx.packs) {
+  for (let [x, y, z] of ctx.packs) {
+    if (y === null) y = groundAt(x, z, 30);
     const g = new THREE.Group();
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, 0.15, 20), new THREE.MeshStandardMaterial({ color: 0x3a3d44, metalness: 0.4, roughness: 0.4 }));
     const cross = new THREE.Group(), cm = new THREE.MeshStandardMaterial({ color: 0xffb36b, emissive: 0xff8a2a, emissiveIntensity: 1.6 });
@@ -127,7 +128,7 @@ function loadMap(id) {
   }
 }
 const spawnZ = (team) => ctx.def.spawnZ * (team === 'blue' ? 1 : -1);
-const inSpawn = (u) => Math.abs(u.pos.z) > ctx.def.gateZ && Math.sign(u.pos.z) === (u.team === 'blue' ? 1 : -1);
+const inSpawn = (u) => Math.abs(u.pos.z) > ctx.def.gateZ && Math.abs(u.pos.x) < ctx.def.spawnHalfW && Math.sign(u.pos.z) === (u.team === 'blue' ? 1 : -1);
 
 // ============================================================ 모델
 const loader = new GLTFLoader();
@@ -798,12 +799,15 @@ function speedOf(u) {
 
 // ============================================================ 봇 AI
 function newBrain(u) {
-  const s = u.team === 'blue' ? 1 : -1, B = W.bounds;
-  const lane = [-0.62, 0, 0.62][Math.random() * 3 | 0] * (B.x1 - 3);
-  const via = randomFreeNear(lane, ctx.def.gateZ * 0.5 * s, 3);
-  const goal = randomFreeNear(0, 0, ctx.pointR * 0.6);
+  const s = u.team === 'blue' ? 1 : -1, vs = ctx.def.vias, v = vs[Math.random() * vs.length | 0];
+  const via = v.y ? V3(v.x, v.y, v.z * s) : randomFreeNear(v.x, v.z * s, 3, 0.6);
+  // 일부는 높은 곳(퍼치)을 잡고 거점을 내려다봄 — 저격수일수록 자주
+  const pc = { aria: 0.75, phase: 0.4, lumen: 0.3, tick: 0.25, mora: 0.25, iko: 0.2, orbit: 0.1 }[u.hero] || 0;
+  let perch = null;
+  if (ctx.def.perches && Math.random() < pc) { const q = ctx.def.perches[Math.random() * ctx.def.perches.length | 0]; perch = V3(q.x, q.y, q.z * s); }
+  const goal = perch ? randomFreeNear(perch.x, perch.z, 1.5, perch.y + 0.3, perch.y - 0.3) : randomFreeNear(0, 0, ctx.pointR * 0.6);
   const path = findPath(u.pos, via).concat(findPath(via, goal));
-  return { path, target: null, react: 0, strafe: rand(0, 6), stuckT: 0, lastPos: u.pos.clone(), think: 0, attacker: null, wander: null, repathT: 0 };
+  return { path, perch, target: null, react: 0, strafe: rand(0, 6), stuckT: 0, lastPos: u.pos.clone(), think: 0, attacker: null, wander: null, repathT: 0 };
 }
 function aimTargetPoint(u, t) {
   if (t.isDecoy) return t.pos.clone().setY(t.pos.y + 1.2);
@@ -846,9 +850,14 @@ function botTick(u, dt) {
   if (b.goPack) goal = b.goPack.pos;
   else if (b.path.length) { goal = b.path[0]; if (Math.hypot(goal.x - u.pos.x, goal.z - u.pos.z) < 1.4) b.path.shift(); }
   else {
-    if (!b.wander || Math.random() < dt * 0.5) b.wander = randomFreeNear(0, 0, ctx.pointR * 0.75);
+    // 퍼치를 지키다가, 적이 거점을 거의 다 먹으면 내려가서 막음
+    const enemy = u.team === 'blue' ? 'red' : 'blue';
+    if (b.perch && ((point.capTeam === enemy && point.cap > 35 && !point.contested) || (point.owner === enemy && !point.contested && Math.random() < dt * 0.05))) { b.perch = null; b.repathT = 0; }
+    const P = b.perch;
+    if (!b.wander || Math.random() < dt * 0.5) b.wander = P ? randomFreeNear(P.x, P.z, 2, P.y + 0.3, P.y - 0.3) : randomFreeNear(0, 0, ctx.pointR * 0.75);
     goal = b.wander;
-    if (Math.hypot(u.pos.x, u.pos.z) > ctx.pointR + 8 && b.repathT <= 0) { b.repathT = 3; b.path = findPath(u.pos, randomFreeNear(0, 0, ctx.pointR * 0.6)); }
+    const far = P ? Math.hypot(u.pos.x - P.x, u.pos.z - P.z) > 5 || Math.abs(u.pos.y - P.y) > 1 : Math.hypot(u.pos.x, u.pos.z) > ctx.pointR + 8;
+    if (far && b.repathT <= 0) { b.repathT = 3; b.path = findPath(u.pos, P ? b.wander : randomFreeNear(0, 0, ctx.pointR * 0.6)); }
   }
   const mv = V3();
   if (goal) { mv.set(goal.x - u.pos.x, 0, goal.z - u.pos.z); if (mv.lengthSq() > 0.04) mv.normalize(); else mv.set(0, 0, 0); }
@@ -1405,7 +1414,7 @@ function render() {
   if (matchState !== 'menu' && vmRoot) { renderer.clearDepth(); renderer.render(vmScene, vmCam); }
 }
 function menuCam(t) {
-  camera.position.set(Math.sin(t * 0.08) * 22, 9 + Math.sin(t * 0.13) * 1.5, Math.cos(t * 0.08) * 22);
+  camera.position.set(Math.sin(t * 0.07) * 30, 12 + Math.sin(t * 0.13) * 2, Math.cos(t * 0.07) * 30);
   camera.lookAt(0, 3, 0);
   if (ctx.core) ctx.core.rotation.y = t * 0.4;
 }
