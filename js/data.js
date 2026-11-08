@@ -69,5 +69,9 @@ export const HEROES = {
 for (const [k, h] of Object.entries(HEROES)) { h.id = k; h.art = `assets/art/${k}.jpg`; h.glb = `assets/${k}.glb`; }
 
 export const ROSTER = { tank: ['ratchet', 'orbit', 'nok'], dps: ['tick', 'aria', 'phase'], support: ['lumen', 'mora', 'iko'] };
-export const DIFF = [{ err: 0.075, react: 0.6 }, { err: 0.045, react: 0.38 }, { err: 0.026, react: 0.22 }];
+export const DIFF = [
+  { aimErr: 0.55, turn: 4.5, react: 0.55, fireCone: 0.07, dodge: 0.5 },   // 쉬움
+  { aimErr: 0.3, turn: 7.5, react: 0.34, fireCone: 0.06, dodge: 0.8 }, // 보통
+  { aimErr: 0.17, turn: 11.0, react: 0.2, fireCone: 0.05, dodge: 1.0 },  // 어려움
+];
 export const WEAPONS = ['shotgun', 'pistol', 'staff', 'rifle', 'hammer', 'bow', 'launcher', 'medpistol', 'nanorifle'];

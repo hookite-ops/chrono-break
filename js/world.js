@@ -9,9 +9,36 @@ export const rand = (a, b) => a + Math.random() * (b - a);
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 const matCache = {};
+// 맵 재질: 세계 좌표로 얼룩·패널 이음새·바닥 쪽 때를 그려 넣음(텍스처 파일 없이)
+const GRIME_V = `varying vec3 vWP; varying vec3 vWN;`;
+const GRIME_F = `varying vec3 vWP; varying vec3 vWN;
+float h3(vec3 p){ p = fract(p * 0.3183099 + .1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float vn(vec3 x){ vec3 i = floor(x), f = fract(x); f = f * f * (3. - 2. * f);
+  return mix(mix(mix(h3(i), h3(i + vec3(1,0,0)), f.x), mix(h3(i + vec3(0,1,0)), h3(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(h3(i + vec3(0,0,1)), h3(i + vec3(1,0,1)), f.x), mix(h3(i + vec3(0,1,1)), h3(i + vec3(1,1,1)), f.x), f.y), f.z); }`;
+function grime(mat) {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = GRIME_V + '\n' + sh.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+      vWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vWN = normalize(mat3(modelMatrix) * objectNormal);`);
+    sh.fragmentShader = GRIME_F + '\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      { vec3 an = abs(vWN);
+        float n = vn(vWP * 0.45) * 0.6 + vn(vWP * 1.7) * 0.3 + vn(vWP * 6.0) * 0.1;
+        vec2 uv = an.y > 0.6 ? vWP.xz : (an.x > an.z ? vWP.zy : vWP.xy);
+        vec2 cell = an.y > 0.6 ? vec2(2.0, 2.0) : vec2(2.4, 1.6);
+        vec2 g = abs(fract(uv / cell) - 0.5) * cell;
+        float seam = 1.0 - smoothstep(0.015, 0.045, min(cell.x * 0.5 - g.x, cell.y * 0.5 - g.y));
+        float base = an.y > 0.6 ? 1.0 : mix(0.68, 1.0, smoothstep(0.0, 1.4, vWP.y));
+        diffuseColor.rgb *= (0.78 + 0.38 * n) * (1.0 - 0.28 * seam) * base; }`);
+  };
+  mat.customProgramCacheKey = () => 'grime';
+  return mat;
+}
 export function M(col, opt = {}) {
   const key = col + JSON.stringify(opt);
-  if (!matCache[key]) matCache[key] = new THREE.MeshStandardMaterial({ color: col, roughness: opt.r ?? 0.8, metalness: opt.m ?? 0, emissive: opt.e ?? 0x000000, emissiveIntensity: opt.ei ?? 1, transparent: !!opt.t, opacity: opt.t ?? 1 });
+  if (!matCache[key]) {
+    const m = new THREE.MeshStandardMaterial({ color: col, roughness: opt.r ?? 0.8, metalness: opt.m ?? 0, emissive: opt.e ?? 0x000000, emissiveIntensity: opt.ei ?? 1, transparent: !!opt.t, opacity: opt.t ?? 1 });
+    matCache[key] = opt.e || opt.t ? m : grime(m);
+  }
   return matCache[key];
 }
 const staticGeo = new Map();

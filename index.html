@@ -72,12 +72,21 @@ canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block}
 #cross i{position:absolute;background:#fff;box-shadow:0 0 2px #000}
 #cross .d{width:4px;height:4px;border-radius:50%;left:-2px;top:-2px}
 #cross .h{width:9px;height:2px;top:-1px} #cross .v{width:2px;height:9px;left:-1px}
-#cross .l{left:-17px}#cross .r{left:8px}#cross .t{top:-17px}#cross .b{top:8px}
+#cross{--gap:4px}
+#cross .l{left:calc(-9px - var(--gap))}#cross .r{left:var(--gap)}#cross .t{top:calc(-9px - var(--gap))}#cross .b{top:var(--gap)}
+#cross i{transition:left .06s,top .06s}
 #hit{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;opacity:0}
 #hit i{position:absolute;width:11px;height:3px;background:#fff;top:15px}
 #hit i:nth-child(1){left:-1px;transform:rotate(45deg) translateX(-5px)}#hit i:nth-child(2){right:-1px;transform:rotate(-45deg) translateX(5px)}
 #hit i:nth-child(3){left:-1px;transform:rotate(-45deg) translateX(-5px)}#hit i:nth-child(4){right:-1px;transform:rotate(45deg) translateX(5px)}
 #hit.head i{background:var(--red)} #hit.kill i{background:var(--red);height:4px}
+#killban{position:absolute;left:50%;top:60%;transform:translate(-50%,0) scale(.9);opacity:0;font-size:18px;text-shadow:0 2px 6px #000;white-space:nowrap;pointer-events:none}
+#killban b{font-family:'Black Han Sans';font-weight:400;color:#ff4d5e;font-size:24px;margin-right:6px;letter-spacing:.05em}
+#killban.on{animation:kb 1.6s ease-out forwards}
+@keyframes kb{0%{opacity:0;transform:translate(-50%,6px) scale(1.25)}10%{opacity:1;transform:translate(-50%,0) scale(1)}75%{opacity:1}100%{opacity:0;transform:translate(-50%,-6px) scale(1)}}
+.dmgdir{position:absolute;left:50%;top:50%;width:240px;height:240px;pointer-events:none;opacity:0}
+.dmgdir::before{content:'';position:absolute;left:50%;top:0;width:90px;height:20px;transform:translateX(-50%);border-radius:50% 50% 0 0/100% 100% 0 0;background:radial-gradient(ellipse at 50% 100%,rgba(255,60,60,.9),rgba(255,60,60,0) 70%)}
+#hit i{transition:none}
 #vign{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 55%,rgba(255,30,40,.55));opacity:0;transition:opacity .25s}
 #healv{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 60%,rgba(255,170,80,.35));opacity:0;transition:opacity .3s}
 
@@ -173,6 +182,7 @@ canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block}
   <div id="feed"></div>
   <div id="cross"><i class="d"></i><i class="h l"></i><i class="h r"></i><i class="v t"></i><i class="v b"></i></div>
   <div id="hit"><i></i><i></i><i></i><i></i></div>
+  <div id="killban"></div>
   <div id="center"><div class="big" id="cbig"></div><div class="sm" id="csm"></div></div>
   <div id="tip"></div>
   <div id="me">

@@ -1,7 +1,7 @@
 // 맵: 경계 시장 · 정지된 광장 — 배치는 mapdata.js(맵 설계 데이터), 여기서는 모양·장식을 입힌다
 import * as THREE from 'three';
 import { block, solid, cylinder, sign, clockFace, add, M, W, rand, boxes } from './world.js';
-import { MARKET, SQUARE } from './mapdata.js';
+import { COMPACT } from './mapdata.js';
 
 const TEAM_COL = { blue: 0x3db8ff, red: 0xff4d5e };
 const glowO = () => M('#ff8a2a', { e: 0xff7a1a, ei: 2.2 });
@@ -170,46 +170,19 @@ function car(x, y, z, rx, ry, rz, col = '#2f8f94', len = 4) {
 
 export const MAPS = {
   market: {
-    name: '경계 시장', sub: '시장 테라스 · 고가도로 · 아치 문', lore: '시장 거리 한가운데로 시간 단층선이 지나간다. 왼쪽은 아직 장사 중인 현재, 오른쪽은 녹슨 미래. 거점은 시계가 멈춘 낮은 광장.',
-    spawnZ: 82, gateZ: 74, spawnHalfW: 22, pointR: 8, fogNear: 60, fogFar: 210, sun: [-60, 95, 40],
-    perches: [{ x: -26, y: 3.6, z: 14 }, { x: -27, y: 3.6, z: 18 }, { x: 33, y: 4.2, z: 22 }, { x: 33, y: 4.2, z: 30 }, { x: 10, y: 2.0, z: 16.5 }, { x: -10, y: 2.0, z: 16.5 }, { x: 19, y: 2.4, z: 13 }],
-    vias: [{ x: -40, z: 46 }, { x: -26, z: 14, y: 3.6 }, { x: 0, z: 40 }, { x: 0, z: 36 }, { x: 33, z: 35, y: 4.2 }, { x: 44, z: 36 }],
+    name: '경계 시장', sub: '작고 빠른 거점전', lore: '시장 거리 한가운데로 시간 단층선이 지나간다. 왼쪽은 아직 장사 중인 현재, 오른쪽은 녹슨 미래. 거점은 시계가 멈춘 낮은 광장.',
+    spawnZ: 46, gateZ: 42, spawnHalfW: 14, pointR: 7.5, fogNear: 50, fogFar: 150, sun: [-45, 70, 30],
+    perches: [{ x: -25, y: 3.2, z: 9 }, { x: -22, y: 3.2, z: 11 }, { x: 24.5, y: 3.6, z: 12 }, { x: 24.5, y: 3.6, z: 18 }],
+    vias: [{ x: -28, z: 28 }, { x: -28, z: 16 }, { x: 0, z: 26 }, { x: 0, z: 24 }, { x: 31, z: 20 }, { x: 24.5, y: 3.6, z: 22 }],
     build(ctx) {
-      buildFromData(MARKET, ctx, {
-        seed: 7, coreY: 5.0, split: (x) => x,
-        fault: () => { const o = []; for (let z = -88; z < 88; z += 3) o.push([Math.sin(z * 0.7) * 0.35, z + 1.5, Math.sin(z) * 0.2]); return o; },
+      buildFromData(COMPACT, ctx, {
+        seed: 7, coreY: 4.4, split: (x) => x,
+        fault: () => { const o = []; for (let z = -49; z < 49; z += 3) o.push([Math.sin(z * 0.7) * 0.35, z + 1.5, Math.sin(z) * 0.2]); return o; },
         extra() {
-          clockFace(0, 4.6, 33.05, 1.5, 0); clockFace(0, 4.6, -33.05, 1.5, Math.PI, true);
-          car(1, 7.5, 2, 0.35, 0.6, -0.5); car(-6, 9.5, -4, -0.4, 2.1, 0.3, '#ff3d8a');
-          frozenDebris(0, 0, 90, 3, 12, 5.5, 11);
-          // 시장 위 전선과 등
-          for (let z = -60; z <= 60; z += 15) { block(-40, 5.6, z, 30, 0.03, 0.03, '#222', { solid: false, cast: false }); for (let x = -54; x < -26; x += 3) block(x, 5.4, z, 0.25, 0.25, 0.25, M('#ffd28a', { e: 0xffc060, ei: 2 }), { solid: false, cast: false }); }
-        },
-      });
-    },
-  },
-  square: {
-    name: '정지된 광장', sub: '분수 무대 · 잔해 발판 · 멈춘 버스', lore: '크로노 코어가 폭주한 순간, 광장에서 터지던 폭발이 그대로 굳었다. 분수 무대를 공중에 멈춘 잔해 발판들이 둘러싸고 있다.',
-    spawnZ: 71, gateZ: 64, spawnHalfW: 20, pointR: 7, fogNear: 55, fogFar: 190, sun: [55, 85, -50],
-    perches: [{ x: -14, y: 3.0, z: 12 }, { x: 14, y: 3.0, z: 12 }, { x: -17, y: 2.0, z: 1 }, { x: 17, y: 2.0, z: 1 }, { x: 41, y: 2.8, z: 31 }, { x: -43.5, y: 3.4, z: 30 }],
-    vias: [{ x: -43, z: 39, y: 3.4 }, { x: -30, z: 40 }, { x: 0, z: 36 }, { x: 0, z: 50 }, { x: 41, z: 36, y: 2.8 }, { x: 30, z: 40 }, { x: -14, z: 12, y: 3.0 }],
-    build(ctx) {
-      buildFromData(SQUARE, ctx, {
-        seed: 11, coreY: 4.2, split: (x, z) => x - z * 0.55,
-        fault: () => { const o = []; for (let t = -90; t < 90; t += 2.6) { const x = t * 0.48, z = t * 0.88; if (Math.abs(x) < 47 && Math.abs(z) < 77) o.push([x + Math.sin(t) * 0.3, z, 0.5]); } return o; },
-        extra(ctx) {
-          // 솟구치다 멈춘 분수 물줄기
-          for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; cylinder(Math.cos(a) * 0.8, 2.0, Math.sin(a) * 0.8, 0.08, rand(1.5, 3), M('#9fe6ff', { e: 0x4fbfff, ei: 1.4, t: 0.7 }), { rt: 0.02, rx: Math.cos(a) * 0.3, rz: -Math.sin(a) * 0.3, cast: false }); }
-          // 멈춘 폭발: 충격파 껍질 + 파편 + 공중의 차들
-          const shell = new THREE.Mesh(new THREE.SphereGeometry(16, 40, 20), new THREE.MeshBasicMaterial({ color: 0xff9a4a, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
-          shell.position.set(0, 5, 0); add(shell); ctx.shell = shell;
-          const ring = new THREE.Mesh(new THREE.TorusGeometry(16, 0.08, 6, 120), new THREE.MeshBasicMaterial({ color: 0xffa050, toneMapped: false }));
-          ring.rotation.x = Math.PI / 2; ring.position.set(0, 5, 0); add(ring);
-          frozenDebris(0, 0, 170, 4, 17, 6, 15);
-          car(-12, 9, -3, 0.5, 1.2, 0.9, '#e9c46a', 7); car(13, 8.2, -5, -0.6, 0.3, 0.3, '#3d7bd9'); car(5, 11, 14, 1.1, -0.4, 0.2, '#ff3d8a');
-          // 시계탑(03:17)
-          block(-46, 0, -2, 3, 15, 3, '#5b4b5c'); clockFace(-44.45, 12, -2, 1.3, Math.PI / 2);
-          block(46, 0, 2, 3, 13, 3, '#3c3f45'); clockFace(44.45, 10.5, 2, 1.3, -Math.PI / 2, true);
+          clockFace(0, 4.4, 20.05, 1.3, 0); clockFace(0, 4.4, -20.05, 1.3, Math.PI, true);
+          car(1, 7.2, 2, 0.35, 0.6, -0.5); car(-5, 9, -3, -0.4, 2.1, 0.3, '#ff3d8a');
+          frozenDebris(0, 0, 70, 3, 10, 5, 10);
+          for (let z = -36; z <= 36; z += 12) { block(-26, 5.2, z, 16, 0.03, 0.03, '#222', { solid: false, cast: false }); for (let x = -33; x < -18; x += 2.5) block(x, 5.0, z, 0.22, 0.22, 0.22, M('#ffd28a', { e: 0xffc060, ei: 2 }), { solid: false, cast: false }); }
         },
       });
     },
