@@ -12,6 +12,8 @@ G = json.load(open(JSRC))  # {name: [x,y,z]} 원본 좌표, R쪽만 (L은 x 반�
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=SRC)
+for o in list(bpy.data.objects):
+    if o.type == 'MESH' and o.name.startswith('Icosphere'): bpy.data.objects.remove(o)
 ms = [o for o in bpy.data.objects if o.type == 'MESH']
 for o in ms:
     mw = o.matrix_world.copy(); o.parent = None; o.matrix_world = mw

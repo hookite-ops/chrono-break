@@ -30,7 +30,7 @@
   #start { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(10,12,18,.55), rgba(10,12,18,.92)); }
   #start .go { cursor: pointer; }
   .picks { display: flex; gap: 14px; justify-content: center; margin-top: 26px; }
-  .pick { width: 150px; padding: 14px 10px; border-radius: 12px; background: rgba(255,255,255,.06); border: 2px solid transparent; cursor: pointer; transition: .15s; }
+  .pick { width: 130px; padding: 14px 10px; border-radius: 12px; background: rgba(255,255,255,.06); border: 2px solid transparent; cursor: pointer; transition: .15s; }
   .pick:hover { background: rgba(255,255,255,.1); }
   .pick.on { border-color: var(--acc); background: rgba(255,122,47,.12); }
   .pick b { display: block; font-size: 22px; } .pick span { font-size: 13px; color: var(--dim); }
@@ -83,7 +83,7 @@
 <div id="start"><div class="box">
   <h1>영웅 <em>시험장</em></h1>
   <p>새로 만든 3D 모델로 걷고, 뛰고, 쏴보기</p>
-  <div class="picks"><div class="pick on" data-id="ratchet"><b>래칫</b><span>산탄총</span></div><div class="pick" data-id="orbit"><b>오비트</b><span>에너지 소총</span></div></div>
+  <div class="picks"><div class="pick on" data-id="ratchet"><b>래칫</b><span>산탄총</span></div><div class="pick" data-id="orbit"><b>오비트</b><span>에너지 소총</span></div><div class="pick" data-id="tick"><b>틱</b><span>쌍권총</span></div><div class="pick" data-id="nok"><b>녹</b><span>전쟁 망치</span></div></div>
   <div class="go" id="go">불러오는 중…</div>
   <div class="load" id="load">모델 준비 중</div>
 </div></div>
