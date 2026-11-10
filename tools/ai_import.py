@@ -66,24 +66,23 @@ zmin = min(v.z for v in vs)
 body.data.transform(Matrix.Translation((0, 0, -zmin)))
 vs = [v.co for v in body.data.vertices]
 
-# 다리 위치: 발목 높이 점들을 x로 정렬해 4 cm 넘게 비는 곳에서 덩어리로 나누고, 가장 큰 두 덩어리를 두 발로 봄
-#           (바닥에 닿은 무기 끝·망토 자락 같은 작은 덩어리는 버려짐)
+# 다리 위치: 발목 높이 점 중 몸 가운데 가까운 것만(바닥에 닿은 무기·망토 제외) → x로 두 무리
 low = [v for v in vs if v.z < 0.1 * HEIGHT]
-xs = sorted(low, key=lambda v: v.x)
-groups, cur = [], [xs[0]]
-for v in xs[1:]:
-    if v.x - cur[-1].x > 0.04 * HEIGHT / 1.8: groups.append(cur); cur = [v]
-    else: cur.append(v)
-groups.append(cur)
-groups.sort(key=len, reverse=True)
-big = [g for g in groups[:2] if len(g) > 0.08 * len(low)]
-if len(big) == 2:
-    big.sort(key=lambda g: sum(v.x for v in g) / len(g))
-    L, R = big
-else:  # 두 발이 붙어 있으면 가장 큰 덩어리를 가운데에서 반으로
-    g = sorted(groups[0], key=lambda v: v.x); L, R = g[:len(g) // 2], g[len(g) // 2:]
-split = (max(v.x for v in L) + min(v.x for v in R)) / 2
-legs = [Vector((sum(v.x for v in grp) / len(grp), sum(v.y for v in grp) / len(grp))) for grp in (L, R)]
+mid = [v for v in vs if 0.35 * HEIGHT < v.z < 0.55 * HEIGHT]   # 골반 높이의 가운데를 기준으로
+def med(a): a = sorted(a); return a[len(a) // 2]
+cx, cy = med([v.x for v in mid]), med([v.y for v in mid])
+low = [v for v in low if abs(v.x - cx) < 0.16 * HEIGHT and abs(v.y - cy) < 0.2 * HEIGHT] or low
+xs = sorted(v.x for v in low)
+gap, split = 0, cx
+for i in range(1, len(xs)):
+    m = (xs[i] + xs[i - 1]) / 2
+    if xs[i] - xs[i - 1] > gap and abs(m - cx) < 0.08 * HEIGHT:
+        gap = xs[i] - xs[i - 1]; split = m
+L = [v for v in low if v.x < split]; R = [v for v in low if v.x >= split]
+legs = []
+for grp, off in ((L, -0.06), (R, 0.06)):
+    if len(grp) > 5: legs.append(Vector((sum(v.x for v in grp) / len(grp), sum(v.y for v in grp) / len(grp))))
+    else: legs.append(Vector((cx + off * HEIGHT, cy)))
 # 두 발 가운데를 원점으로
 ox, oy = (legs[0].x + legs[1].x) / 2, (legs[0].y + legs[1].y) / 2
 body.data.transform(Matrix.Translation((-ox, -oy, 0)))
