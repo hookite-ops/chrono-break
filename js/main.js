@@ -222,18 +222,28 @@ function mergeNode(root) {
   }
   return root;
 }
-function outlineMat(col, w) {
+function outlineMat(col, w, bias = 0) {
   const m = new THREE.MeshBasicMaterial({ color: col, side: THREE.BackSide, toneMapped: false });
+  if (bias) { m.polygonOffset = true; m.polygonOffsetFactor = bias; m.polygonOffsetUnits = bias * 4; }
   m.onBeforeCompile = (sh) => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\n transformed += normalize(normal) * ${w.toFixed(3)};`); };
-  m.customProgramCacheKey = () => 'outline' + w;
+  m.customProgramCacheKey = () => 'outline' + w + ':' + bias;
   return m;
 }
-const OUTLINE = { dark: outlineMat(0x0c0d12, 0.016), enemy: outlineMat(0xff3344, 0.022), ally: outlineMat(0x0c0d12, 0.016) };
+const OUTLINE = { dark: outlineMat(0x0c0d12, 0.016), enemy: outlineMat(0xff3344, 0.022), ally: outlineMat(0x0c0d12, 0.016),
+  enemyAI: outlineMat(0xff3344, 0.014, 6), allyAI: outlineMat(0x0c0d12, 0.01, 6) };
 // AI로 뽑은 영웅 모델(assets/ai/<id>.glb)이 있으면 그걸 쓰고, 없으면 기본 모델
 let AI_HEROES = [];
 function prepAI(root) {
   root.userData.ai = true;
-  root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
+  const skinned = [];
+  root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; if (o.isSkinnedMesh) skinned.push(o); } });
+  // 외곽선: 같은 뼈대로 움직이는 뒤집힌 껍질
+  for (const o of skinned) {
+    const ol = new THREE.SkinnedMesh(o.geometry, OUTLINE.dark);
+    ol.bind(o.skeleton, o.bindMatrix); ol.userData.outline = true; ol.castShadow = false; ol.frustumCulled = false;
+    ol.position.copy(o.position); ol.quaternion.copy(o.quaternion); ol.scale.copy(o.scale);
+    o.parent.add(ol);
+  }
   return root;
 }
 async function loadAll(progress) {
@@ -301,7 +311,7 @@ class Unit {
     this.ai = !!templates[hero].userData.ai; this.rig = this.ai ? makeRig(this.model) : null;
     // 맞으면 번쩍이도록 이 유닛만의 재질 복사본
     this.mats = []; this.flashT = 0; this.flinch = 0;
-    this.model.traverse(o => { if (o.userData.outline) o.material = this.team === 'red' ? OUTLINE.enemy : OUTLINE.ally; });
+    this.model.traverse(o => { if (o.userData.outline) o.material = this.team === 'red' ? (o.isSkinnedMesh ? OUTLINE.enemyAI : OUTLINE.enemy) : (o.isSkinnedMesh ? OUTLINE.allyAI : OUTLINE.ally); });
     this.model.traverse(o => { if (o.isMesh && !o.userData.outline) { o.material = o.material.clone(); this.mats.push({ m: o.material, e: o.material.emissive ? o.material.emissive.clone() : null, ei: o.material.emissiveIntensity }); } });
     this.j = {}; for (const n of ['hips', 'spine', 'chest', 'head', 'sh0', 'sh1', 'el0', 'el1', 'hip0', 'hip1', 'knee0', 'knee1']) this.j[n] = this.model.getObjectByName(n);
     this.drone = this.model.getObjectByName('Drone');
