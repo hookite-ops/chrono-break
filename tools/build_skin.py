@@ -8,6 +8,7 @@ from mathutils.kdtree import KDTree
 
 a = sys.argv[sys.argv.index('--') + 1:]
 SRC, DST, HEIGHT, JSRC = a[0], a[1], float(a[2]), a[3]
+TRIS = int(a[4]) if len(a) > 4 else 0
 G = json.load(open(JSRC))  # {name: [x,y,z]} 원본 좌표, R쪽만 (L은 x 반전)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -25,6 +26,12 @@ bpy.context.view_layer.objects.active = ms[0]
 if len(ms) > 1: bpy.ops.object.join()
 body = ms[0]; body.name = 'body'
 body.data.transform(body.matrix_world); body.matrix_world = Matrix.Identity(4)
+ntri = sum(len(p.vertices) - 2 for p in body.data.polygons)
+if TRIS and ntri > TRIS:
+    bpy.context.view_layer.objects.active = body
+    d = body.modifiers.new('dec', 'DECIMATE'); d.ratio = TRIS / ntri
+    bpy.ops.object.modifier_apply(modifier='dec')
+    print('DECIMATED', ntri, '->', sum(len(p.vertices) - 2 for p in body.data.polygons))
 src_vs = [v.co.copy() for v in body.data.vertices]
 H0 = max(v.z for v in src_vs) - min(v.z for v in src_vs)
 k = HEIGHT / H0
@@ -105,6 +112,22 @@ for v in body.data.vertices:
             d = (h + ht * u - v.co).length
             if d < bd: bd, best = d, n
         body.vertex_groups[best].add([v.index], 1.0, 'REPLACE')
+# 다리 아래쪽은 반대편 다리 뼈 가중치를 지움 (다리가 붙어 있어도 따로 움직이게)
+crotch = min(J['hip_R'].z, J['hip_L'].z) - 0.04 * HEIGHT
+gi = {g.name: g.index for g in body.vertex_groups}
+legs = {'R': ['thigh_R', 'shin_R', 'foot_R'], 'L': ['thigh_L', 'shin_L', 'foot_L']}
+fixed = 0
+for v in body.data.vertices:
+    if v.co.z > crotch: continue
+    other = legs['L'] if v.co.x > 0 else legs['R']
+    rm = [g for g in v.groups if body.vertex_groups[g.group].name in other or body.vertex_groups[g.group].name == 'hips']
+    if not rm: continue
+    for g in rm: body.vertex_groups[g.group].remove([v.index])
+    if not any(gg.weight > 1e-4 for gg in v.groups):
+        mine = legs['R'] if v.co.x > 0 else legs['L']
+        body.vertex_groups[mine[0] if v.co.z > (J['knee_R'].z + J['knee_L'].z) / 2 else mine[1]].add([v.index], 1.0, 'REPLACE')
+    fixed += 1
+print('LEGFIX', fixed)
 print('GROUPS', vg_names, 'unweighted fixed', empty, 'of', len(body.data.vertices))
 
 # 텍스처 1024

@@ -55,12 +55,44 @@ const HEROES = {
     stanceW: 0.17, stride: 1.2, lift: 0.15, crouch: 0.08, cam: [1.1, 0.4, 3.7], heavy: 1,
     wristR: [-0.09, 0, 0], wristL: [-0.09, 0, 0],
   },
+  phase: {
+    name: '페이즈', sub: '제압형 딜러 · 유탄발사기', glb: 'assets/play/phase.glb', meta: 'assets/play/phase.json',
+    gun: 'assets/play/launcher.glb', gunScale: 1.0, speed: 5.6, wpn: 'launcher',
+    gunOff: [0.17, -0.14, -0.2], twist: 0.5, palmR: [0, -1, 0], palmL: [0, -1, 0],
+    stanceW: 0.16, stride: 1.4, lift: 0.17, crouch: 0.07, cam: [1.0, 0.3, 3.3], heavy: 0,
+    wristR: [-0.085, 0.02, -0.02], wristL: [-0.08, -0.02, -0.05],
+  },
+  lumen: {
+    name: '루멘', sub: '치유형 지원 · 빛의 지팡이', glb: 'assets/play/lumen.glb', meta: 'assets/play/lumen.json',
+    gun: 'assets/play/staff.glb', gunScale: 1.0, speed: 5.6, wpn: 'staff',
+    gunOff: [0.2, -0.22, -0.05], twist: 0.35, palmR: [0, -1, 0], palmL: [0, -1, 0],
+    stanceW: 0.1, stride: 1.4, lift: 0.16, crouch: 0.06, cam: [1.0, 0.3, 3.4], heavy: 0,
+    wristR: [-0.08, 0.0, -0.02], wristL: [-0.08, 0.0, -0.03],
+  },
+  mora: {
+    name: '모라', sub: '전술형 지원 · 의료 다트총', glb: 'assets/play/mora.glb', meta: 'assets/play/mora.json',
+    gun: 'assets/play/dart.glb', gunScale: 1.0, speed: 5.6, wpn: 'medpistol',
+    gunOff: [0.16, -0.12, -0.2], twist: 0.5, palmR: [0, -1, 0], palmL: [0, -1, 0],
+    stanceW: 0.13, stride: 1.45, lift: 0.17, crouch: 0.07, cam: [1.0, 0.3, 3.3], heavy: 0,
+    wristR: [-0.085, 0.02, -0.02], wristL: [-0.08, -0.02, -0.05],
+  },
+  iko: {
+    name: '이코', sub: '치유형 지원 · 나노 소총', glb: 'assets/play/iko.glb', meta: 'assets/play/iko.json',
+    gun: 'assets/play/nanorifle.glb', gunScale: 1.0, speed: 5.8, wpn: 'nanorifle',
+    gunOff: [0.15, -0.1, -0.16], twist: 0.5, palmR: [0, -1, 0], palmL: [0, -1, 0],
+    stanceW: 0.12, stride: 1.3, lift: 0.17, crouch: 0.06, cam: [0.95, 0.25, 3.0], heavy: 0,
+    wristR: [-0.075, 0.02, -0.02], wristL: [-0.07, -0.02, -0.04],
+  },
 };
 const WPN = {
   shotgun: { mag: 6, rate: 0.85, pellets: 10, spread: 0.075, dmg: 9, falloff: [8, 28], reload: 'shell', kick: 1, auto: false },
   rifle: { mag: 32, rate: 0.09, pellets: 1, spread: 0.006, dmg: 9, falloff: [22, 45], reload: 'mag', kick: 0.28, auto: true },
   pistols: { mag: 40, rate: 0.085, pellets: 1, spread: 0.012, dmg: 7, falloff: [18, 40], reload: 'dual', kick: 0.2, auto: true },
   hammer: { mag: 0, rate: 0.9, melee: true, dmg: 75, range: 4.8, kick: 0, auto: true },
+  launcher: { mag: 6, rate: 0.65, proj: 'grenade', speed: 21, g: 11, reload: 'mag', kick: 0.8, auto: false, spread: 0 },
+  staff: { mag: 30, rate: 0.36, proj: 'bolt', speed: 48, g: 0, reload: 'mag', kick: 0.25, auto: true, spread: 0.004, beam: true },
+  medpistol: { mag: 12, rate: 0.32, pellets: 1, spread: 0.004, dmg: 25, falloff: [25, 45], reload: 'mag', kick: 0.4, auto: false, dart: true },
+  nanorifle: { mag: 36, rate: 0.11, pellets: 1, spread: 0.008, dmg: 8, falloff: [20, 40], reload: 'mag', kick: 0.22, auto: true },
 };
 
 // ───────── 경기장 ─────────
@@ -142,6 +174,8 @@ function tone(t0, f0, f1, len, g0, type = 'sine') {
 const SFX = {
   shotgun() { const t = AC.currentTime; burst(t, 0.06, 6000, 0.7, 0.9, 'highpass'); burst(t, 0.35, 1400, 0.8, 1.2); tone(t, 120, 38, 0.3, 1.1); },
   pump() { const t = AC.currentTime; burst(t, 0.05, 2500, 3, 0.35, 'bandpass'); burst(t + 0.12, 0.06, 1800, 3, 0.4, 'bandpass'); },
+  launch() { const t = AC.currentTime; tone(t, 160, 60, 0.25, 0.9); burst(t, 0.2, 900, 0.8, 0.7); burst(t, 0.05, 4000, 1, 0.3, 'highpass'); },
+  zap() { const t = AC.currentTime; tone(t, 1800, 600, 0.15, 0.22, 'triangle'); tone(t, 900, 1400, 0.1, 0.1); },
   rifle() { const t = AC.currentTime; tone(t, 1400, 220, 0.09, 0.28, 'sawtooth'); burst(t, 0.07, 3500, 1.2, 0.5, 'bandpass'); tone(t, 90, 50, 0.08, 0.5); },
   hit(crit) { const t = AC.currentTime; tone(t, crit ? 1700 : 1150, crit ? 1500 : 900, 0.07, 0.22); },
   kill() { const t = AC.currentTime; tone(t, 600, 1200, 0.18, 0.35); tone(t + 0.08, 900, 1800, 0.2, 0.25); },
@@ -221,7 +255,9 @@ async function setHero(id) {
   if (SK.plate) SK.plate.visible = false; if (SK.shell) SK.shell.visible = false;
   if (SK.holo) { scene.remove(SK.holo.g); for (const c of SK.holo.g.userData.guns || []) scene.remove(c); SK.holo = null; }
   while (drones.length) scene.remove(drones.pop().g);
-  SK.charges = 2; SK.chT = 0; SK.buff = 0;
+  SK.charges = 2; SK.chT = 0; SK.buff = 0; SK.bubbleT = 0; P.spdT = 0; P.spdMul = 1; P.dmgT = 0; P.dmgMul = 1;
+  for (const z of zones.splice(0)) scene.remove(z.g);
+  for (const p of projs.splice(0)) scene.remove(p.m);
   const m = data.g.scene; m.position.set(0, 0, 0); m.rotation.set(0, 0, 0);
   const B = {};
   m.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } if (o.isBone) B[o.name] = o; });
@@ -259,14 +295,14 @@ async function setHero(id) {
   A.lowerYaw = P.yaw;
   const AB = ABIL[id];
   $('ab1').querySelector('.nm').textContent = AB.ab1.name; $('ab2').querySelector('.nm').textContent = AB.ab2.name; $('ult').querySelector('.nm').textContent = AB.ult.name;
-  $('keys').innerHTML = `<div><kbd>W A S D</kbd>이동 &nbsp;<kbd>Space</kbd>점프</div><div><kbd>좌클릭</kbd>${{ rifle: '에너지 소총', shotgun: '산탄총', pistols: '쌍권총', hammer: '망치 휘두르기' }[C.wpn]} ${H.W.melee ? '' : '&nbsp;<kbd>R</kbd>장전'}</div>`
-    + `<div><kbd>Shift</kbd>${AB.ab1.name} &nbsp;<kbd>E</kbd>${AB.ab2.name}</div><div><kbd>Q</kbd>${AB.ult.name} (궁극기)</div><div><kbd>T</kbd>정면에서 보기 &nbsp;<kbd>1</kbd>~<kbd>4</kbd>영웅 바꾸기</div>`;
+  $('keys').innerHTML = `<div><kbd>W A S D</kbd>이동 &nbsp;<kbd>Space</kbd>점프</div><div><kbd>좌클릭</kbd>${{ rifle: '에너지 소총', shotgun: '산탄총', pistols: '쌍권총', hammer: '망치 휘두르기', launcher: '유탄발사기', staff: '에너지 볼트', medpistol: '공격 다트', nanorifle: '나노탄' }[C.wpn]} ${H.W.melee ? '' : '&nbsp;<kbd>R</kbd>장전'}</div>${H.W.beam ? '<div><kbd>우클릭</kbd>치유 빛줄기</div>' : ''}${H.W.dart ? '<div><kbd>우클릭</kbd>치유 다트</div>' : ''}`
+    + `<div><kbd>Shift</kbd>${AB.ab1.name} &nbsp;<kbd>E</kbd>${AB.ab2.name}</div><div><kbd>Q</kbd>${AB.ult.name} (궁극기)</div><div><kbd>T</kbd>정면에서 보기 &nbsp;<kbd>1</kbd>~<kbd>8</kbd>영웅 바꾸기</div>`;
   $('hname').textContent = C.name; $('hsub').textContent = C.sub; $('magmax').textContent = ' / ' + H.W.mag;
   document.querySelectorAll('.pick').forEach((el) => el.classList.toggle('on', el.dataset.id === id));
 }
 
 // ───────── 플레이어 ─────────
-const P = { swing: -1, pos: V(0, 0, 4), vel: V(), yaw: 0, pitch: 0, ground: true, mag: 6, cool: 0, reload: 0, reloadT: 0, shots: 0, hits: 0, kills: 0, bloom: 0 };
+const P = { dmgMul: 1, dmgT: 0, spdMul: 1, spdT: 0, cool2: 0, swing: -1, pos: V(0, 0, 4), vel: V(), yaw: 0, pitch: 0, ground: true, mag: 6, cool: 0, reload: 0, reloadT: 0, shots: 0, hits: 0, kills: 0, bloom: 0 };
 const keys = {};
 let locked = false, showcase = 0, showT = 0, mouseDown = false, switching = false;
 addEventListener('keydown', (e) => {
@@ -280,6 +316,10 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Digit2') pickHero('orbit');
   if (e.code === 'Digit3') pickHero('tick');
   if (e.code === 'Digit4') pickHero('nok');
+  if (e.code === 'Digit5') pickHero('phase');
+  if (e.code === 'Digit6') pickHero('lumen');
+  if (e.code === 'Digit7') pickHero('mora');
+  if (e.code === 'Digit8') pickHero('iko');
   if (e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -290,8 +330,10 @@ addEventListener('mousemove', (e) => {
   P.yaw -= dx; P.pitch = clamp(P.pitch - dy, -1.2, 1.25);
   yawRate -= dx; pitchRate -= dy;
 });
-addEventListener('mousedown', (e) => { if (locked && e.button === 0) mouseDown = true; });
-addEventListener('mouseup', (e) => { if (e.button === 0) mouseDown = false; });
+addEventListener('mousedown', (e) => { if (locked && e.button === 0) mouseDown = true; if (locked && e.button === 2) rmb = true; });
+addEventListener('contextmenu', (e) => e.preventDefault());
+let rmb = false;
+addEventListener('mouseup', (e) => { if (e.button === 0) mouseDown = false; if (e.button === 2) rmb = false; });
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas;
   $('start').style.display = locked ? 'none' : 'grid';
@@ -346,10 +388,11 @@ const decalGeo = new THREE.CircleGeometry(0.05, 8);
 const beamGeo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0, -0.5);
 const decals = [];
 function tracer(a, b, kind) {
-  if (kind === 'rifle' || kind === 'pistols') {
-    const m = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: kind === 'pistols' ? 0xff8a2a : 0xffb35c, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const BC = { rifle: [0xffb35c, 0x7fdcff], pistols: [0xff8a2a, 0xffe0b0], nanorifle: [0x9affc8, 0xeafff4], medpistol: [0x4fe0c0, 0xd8fff4], heal: [0x8aff9a, 0xffffff], gold: [0xffd27a, 0xfff4d0] };
+  if (BC[kind]) {
+    const m = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: BC[kind][0], transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
     m.position.copy(a); m.lookAt(b); m.scale.set(0.025, 0.025, a.distanceTo(b)); scene.add(m);
-    const core = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: kind === 'pistols' ? 0xffe0b0 : 0x7fdcff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const core = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: BC[kind][1], transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false }));
     core.scale.set(2.4, 2.4, 1); m.add(core);
     fx.push({ o: m, t: 0, life: 0.09, kind: 'beam' });
   } else {
@@ -419,7 +462,7 @@ function fire() {
   if (W.melee) { if (P.swing < 0 && !(SK.barrier && SK.barrier.on)) { P.swing = 0; P.swingHit = false; P.cool = W.rate; P.shots++; ssfx('whoosh'); } return; }
   if (P.mag <= 0) { startReload(); sfx('click', 1200); P.cool = 0.25; return; }
   P.mag--; P.cool = W.rate; P.shots++;
-  sfx(H.C.wpn === 'pistols' ? 'rifle' : H.C.wpn);
+  sfx({ pistols: 'rifle', medpistol: 'rifle', nanorifle: 'rifle', launcher: 'launch', staff: 'zap' }[H.C.wpn] || H.C.wpn);
   if (W.reload === 'shell') setTimeout(() => sfx('pump'), 330);
   // 반동: 총은 뒤로·위로, 몸은 살짝 젖혀짐
   recoilPos.v.z += 2.6 * W.kick; recoilRot.v.x += 9 * W.kick; recoilRot.v.y += (Math.random() - 0.5) * 3 * W.kick;
@@ -427,9 +470,15 @@ function fire() {
   P.camKick += 0.035 * W.kick + 0.006;
   let mz = wpos(H.muzzle);
   if (H.C.hold === 'dual') { P.alt = 1 - (P.alt || 0); mz = wpos(P.alt ? H.muzzle2 : H.muzzle); dualKick[P.alt].v.z += 2.5; dualKick[P.alt].v.x += 6; }
-  flash.material.map = flashTex[H.C.wpn]; flash.scale.setScalar(H.C.wpn === 'shotgun' ? 0.9 : 0.4);
+  flash.material.map = flashTex[H.C.wpn] || flashTex.rifle; flash.scale.setScalar(H.C.wpn === 'shotgun' ? 0.9 : 0.4);
   flash.position.copy(mz); flash.visible = true; flash.material.rotation = Math.random() * 6; flash.userData.t = H.C.wpn !== 'shotgun' ? 0.035 : 0.05;
   flashLight.position.copy(mz); flashLight.color.set(H.C.wpn === 'rifle' ? 0x9fd8ff : 0xffb060); flashLight.intensity = H.C.wpn === 'shotgun' ? 30 : 12;
+  if (W.proj) { // 투사체 무기
+    const dir = aimPoint.clone().sub(mz).normalize();
+    if (W.g) { const dist = aimPoint.distanceTo(mz); dir.y += Math.min(0.5, W.g * dist / (2 * W.speed * W.speed)); dir.normalize(); }
+    spawnProj(W.proj, mz, dir.multiplyScalar(W.speed), { g: W.g });
+    return;
+  }
   const camDir = V(); camera.getWorldDirection(camDir);
   const right = V().crossVectors(camDir, camera.up).normalize(), up = V().crossVectors(right, camDir);
   const spread = W.spread + P.bloom + (Math.hypot(P.vel.x, P.vel.z) > 1 ? W.spread * 0.6 : 0) + (P.ground ? 0 : 0.02);
@@ -445,9 +494,9 @@ function fire() {
     tracer(mz.clone().addScaledVector(toP, 0.25), h.p, H.C.wpn);
     if (h.kind === 'dummy') {
       const [f0, f1] = W.falloff, fall = 1 - 0.6 * clamp((h.t - f0) / (f1 - f0), 0, 1);
-      const dmg = Math.round(W.dmg * fall * (h.crit ? 2 : 1));
+      const dmg = Math.round(W.dmg * fall * (h.crit ? 2 : 1) * P.dmgMul);
       per.set(h.d, (per.get(h.d) || 0) + dmg); total += dmg; anyCrit ||= h.crit;
-      sparks(h.p, 2, toP.clone().negate(), H.C.wpn === 'rifle' ? 0x9fe0ff : (H.C.wpn === 'pistols' ? 0xffa050 : null));
+      sparks(h.p, 2, toP.clone().negate(), { rifle: 0x9fe0ff, pistols: 0xffa050, nanorifle: 0xb0ffd8, medpistol: 0x80ffe0 }[H.C.wpn] || null);
     } else if (h.kind === 'box') { const n = boxNormal(h.box, h.p); decal(h.p, n); sparks(h.p, 2, n); }
     else if (h.kind === 'floor') { decal(h.p, UP); sparks(h.p, 1, UP); }
   }
@@ -632,6 +681,14 @@ function poseHero(dt) {
       const k = ap.handK;
       tg = sL.clone().addScaledVector(aimFwd, reach * lerp(0.45, 0.95, k)).addScaledVector(UP, lerp(-0.1, 0.05, k)).addScaledVector(aimRight, 0.08);
       dr = aimFwd.clone().multiplyScalar(0.35).addScaledVector(UP, 0.9).normalize(); pm = aimFwd.clone();
+    } else if (ap.handMode === 'throw') { // 뒤로 젖혔다가 앞으로 던짐
+      const k = ap.handK;
+      const back = sL.clone().addScaledVector(UP, reach * 0.55).addScaledVector(aimFwd, -reach * 0.35).addScaledVector(aimRight, -0.1);
+      const fwdP = sL.clone().addScaledVector(aimFwd, reach * 0.95).addScaledVector(UP, reach * 0.15);
+      tg = back.lerp(fwdP, k); dr = UP.clone().lerp(aimFwd, k).normalize(); pm = aimFwd.clone().lerp(UP.clone().negate(), k).normalize();
+    } else if (ap.handMode === 'call') { // 하늘로 손을 듦
+      tg = sL.clone().addScaledVector(UP, reach * 0.95).addScaledVector(aimFwd, 0.1).addScaledVector(aimRight, -0.05);
+      dr = UP.clone(); pm = aimFwd.clone();
     } else {
       const k = ap.handK;
       const upP = sL.clone().addScaledVector(UP, reach * 0.9).addScaledVector(aimFwd, 0.12);
@@ -852,12 +909,179 @@ function makeDrone() {
   return { g, ring: ringM, t: 0, fire: 0, target: null };
 }
 
+// ───────── 투사체 (유탄·점착 폭탄·에너지 볼트·섬광탄·박격포) ─────────
+const projs = [];
+const PG = {
+  grenade: new THREE.SphereGeometry(0.07, 12, 8), bolt: new THREE.SphereGeometry(0.06, 10, 8), bomb: new THREE.SphereGeometry(0.09, 12, 8),
+  flash: new THREE.CylinderGeometry(0.04, 0.04, 0.12, 10), shell: new THREE.ConeGeometry(0.09, 0.4, 10).rotateX(Math.PI),
+};
+const PM = {
+  grenade: new THREE.MeshStandardMaterial({ color: 0x2aa0a0, emissive: 0xff7a2f, emissiveIntensity: 0.6, metalness: 0.5, roughness: 0.4 }),
+  bolt: new THREE.MeshBasicMaterial({ color: 0xffe6a0 }), bomb: new THREE.MeshStandardMaterial({ color: 0x333333, emissive: 0xff2020, emissiveIntensity: 1 }),
+  flash: new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.6, roughness: 0.3 }), shell: new THREE.MeshStandardMaterial({ color: 0x44505a, emissive: 0xff7a2f, emissiveIntensity: 0.5 }),
+};
+const glowTex = radTex([[0, 'rgba(255,255,230,1)'], [0.35, 'rgba(255,210,120,.7)'], [1, 'rgba(255,180,80,0)']]);
+function spawnProj(kind, pos, vel, opt = {}) {
+  const m = new THREE.Mesh(PG[kind], PM[kind]); m.position.copy(pos); m.castShadow = true; scene.add(m);
+  if (kind === 'bolt') { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); s.scale.setScalar(0.5); m.add(s); }
+  const p = Object.assign({ kind, m, vel: vel.clone(), g: 0, life: 4, t: 0, stuck: null, fuse: 0 }, opt);
+  projs.push(p); return p;
+}
+function explode(pos, r, dmg, color = 0xff8a3a, big = 1) {
+  ring(pos.clone().setY(Math.max(0.02, pos.y)), color, 0.3, r, 0.4);
+  bubble(pos, color, 0.2, r * 0.7, 0.25);
+  const l = new THREE.PointLight(color, 40 * big, r * 3, 2); l.position.copy(pos); scene.add(l);
+  fx.push({ o: l, t: 0, life: 0.25, kind: 'light' });
+  dust(pos, Math.round(6 * big), r * 0.5, 1.2 * big); sparks(pos, Math.round(10 * big));
+  const n = aoe(pos, r, Math.round(dmg * P.dmgMul), 6);
+  SK.shake = Math.max(SK.shake, 0.6 * big * Math.max(0, 1 - pos.distanceTo(P.pos) / 25));
+  ssfx('boom');
+  for (let i = 0; i < 3; i++) decal(pos.clone().setY(groundUnder(pos.x, pos.z, pos.y) + 0.01).add(V((Math.random() - 0.5) * r * 0.4, 0, (Math.random() - 0.5) * r * 0.4)), UP);
+  return n;
+}
+function updateProjs(dt) {
+  for (let i = projs.length - 1; i >= 0; i--) {
+    const p = projs[i]; p.t += dt;
+    if (p.stuck) { // 붙은 점착 폭탄
+      if (p.stuck.d) p.m.position.copy(dummyPos(p.stuck.d)).add(p.stuck.off);
+      p.m.material = (Math.floor(p.t * (p.t > p.fuse - 0.4 ? 16 : 6)) % 2) ? PM.bomb : PM.flash;
+      if (p.t >= p.fuse) { explode(p.m.position, 3.5, 90); scene.remove(p.m); projs.splice(i, 1); }
+      continue;
+    }
+    p.vel.y -= p.g * dt;
+    const from = p.m.position.clone(), step = p.vel.clone().multiplyScalar(dt), len = step.length();
+    const h = castRay(from, step.clone().normalize(), len + 0.05);
+    let hit = h.kind && h.t <= len + 0.05;
+    if (hit) p.m.position.copy(h.p); else p.m.position.add(step);
+    if (p.kind === 'bolt' && Math.random() < 0.5) sparks(p.m.position, 1, null, 0xffe0a0);
+    if (p.kind === 'shell') p.m.lookAt(p.m.position.clone().add(p.vel));
+    if (hit || p.t > p.life) {
+      const at = p.m.position.clone();
+      if (p.kind === 'grenade') explode(at, 3, 80);
+      else if (p.kind === 'shell') explode(at, 4, 110, 0xff7a2f, 1.6);
+      else if (p.kind === 'bolt') {
+        if (h.kind === 'dummy') { hurtDummy(h.d, Math.round(30 * P.dmgMul * (h.crit ? 2 : 1)), h.crit, p.vel.clone().setY(0).normalize().multiplyScalar(0.6)); sfx('hit', h.crit); $('hit').className = h.crit ? 'crit' : ''; hitT = 0.12; P.hits++; }
+        sparks(at, 6, null, 0xffe0a0);
+      } else if (p.kind === 'bomb') {
+        if (!hit) { explode(at, 3.5, 90); scene.remove(p.m); projs.splice(i, 1); continue; }
+        p.stuck = { d: h.kind === 'dummy' ? h.d : null, off: h.kind === 'dummy' ? at.clone().sub(dummyPos(h.d)) : V() };
+        p.t = 0; p.fuse = 1.2; sfx('click', 900); continue;
+      } else if (p.kind === 'flash') { flashBang(at); }
+      scene.remove(p.m); projs.splice(i, 1);
+    }
+  }
+}
+function flashBang(at) {
+  const l = new THREE.PointLight(0xffffff, 120, 25, 2); l.position.copy(at); scene.add(l);
+  fx.push({ o: l, t: 0, life: 0.35, kind: 'light' });
+  bubble(at, 0xffffff, 0.2, 3, 0.25); ring(at.clone().setY(0.03), 0xffffff, 0.2, 5, 0.35);
+  for (const d of dummies) if (!d.dead && dummyPos(d).distanceTo(at) < 5.5) { d.blind = 2.5; hurtDummy(d, 25, false, null); }
+  // 내 화면도 가까우면 하얗게
+  const v = at.clone().project(camera), close = Math.max(0, 1 - at.distanceTo(camera.position) / 12);
+  if (v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2) $('flashov').style.opacity = 0.85 * close;
+  if (AC) { const t = AC.currentTime; burst(t, 0.6, 3000, 0.5, 1.2, 'highpass'); tone(t, 3200, 2600, 1.2, 0.08); }
+}
+
+// 투척 공통: 왼손으로 던지는 동작 뒤 0.22초에 날아감
+function throwProj(kind, speed, g, opt) {
+  SK.act = { type: 'throw', t: 0, dur: 0.5, lock: true, kind, speed, g, opt, fired: false };
+  ssfx('whoosh');
+}
+function releaseThrow(a) {
+  const B = H.B, from = wpos(B.hand_L);
+  const dir = aimPoint.clone().sub(from).normalize();
+  dir.y += 0.18; dir.normalize();
+  spawnProj(a.kind, from, dir.multiplyScalar(a.speed), Object.assign({ g: a.g }, a.opt || {}));
+}
+
+// 오래 남는 장판·구름
+const zones = [];
+function healZone(pos) {
+  const g = new THREE.Group(); g.position.copy(pos);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(3, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const edge = new THREE.Mesh(new THREE.RingGeometry(2.85, 3, 64).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xfff0b0, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+  disc.position.y = edge.position.y = 0.03; g.add(disc, edge); scene.add(g);
+  zones.push({ g, t: 0, life: 5, kind: 'heal', r: 3 });
+}
+function nanoCloud() {
+  const g = new THREE.Group(); scene.add(g);
+  const tex = radTex([[0, 'rgba(210,255,230,.8)'], [1, 'rgba(120,255,200,0)']]);
+  for (let i = 0; i < 70; i++) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5 }));
+    s.userData = { a: Math.random() * 6.28, r: 0.8 + Math.random() * 3.4, y: 0.2 + Math.random() * 2.2, sp: 0.4 + Math.random() * 0.8 };
+    s.scale.setScalar(0.25 + Math.random() * 0.35); g.add(s);
+  }
+  zones.push({ g, t: 0, life: 5, kind: 'nano', follow: true });
+}
+function updateZones(dt) {
+  for (let i = zones.length - 1; i >= 0; i--) {
+    const z = zones[i]; z.t += dt;
+    const fade = z.t < 0.3 ? z.t / 0.3 : z.t > z.life - 0.5 ? (z.life - z.t) / 0.5 : 1;
+    if (z.kind === 'heal') {
+      z.g.children[1].material.opacity = 0.9 * fade; z.g.children[0].material.opacity = 0.18 * fade;
+      if (Math.random() < dt * 25) { const a = Math.random() * 6.28, r = Math.random() * 2.8; const e = new THREE.Mesh(sparkGeo, new THREE.MeshBasicMaterial({ color: 0xfff0a0 })); e.position.copy(z.g.position).add(V(Math.cos(a) * r, 0.05, Math.sin(a) * r)); scene.add(e); fx.push({ o: e, t: 0, life: 1.0, kind: 'ember', v: V(0, 1.2, 0) }); }
+    } else if (z.kind === 'crate') { updateCrate(z, dt); if (z.t > z.life - 0.5) z.g.scale.setScalar(Math.max(0.01, (z.life - z.t) / 0.5));
+    } else if (z.kind === 'nano') {
+      z.g.position.copy(P.pos);
+      for (const s of z.g.children) { const u = s.userData; u.a += dt * u.sp; s.position.set(Math.cos(u.a) * u.r, u.y + Math.sin(z.t * 2 + u.a) * 0.15, Math.sin(u.a) * u.r); s.material.opacity = 0.5 * fade; }
+    }
+    if (z.t > z.life) { scene.remove(z.g); zones.splice(i, 1); }
+  }
+}
+// 보급 상자 (모라 궁극기)
+function supplyDrop() {
+  const fw = V(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
+  const at = P.pos.clone().addScaledVector(fw, 2.2); at.y = groundUnder(at.x, at.z, P.pos.y + 0.3);
+  const crate = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 0.8), new THREE.MeshStandardMaterial({ color: 0x2f7d6a, roughness: 0.7 }));
+  const band = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.12, 0.82), new THREE.MeshStandardMaterial({ color: 0xf2f2f2, emissive: 0x7fffd0, emissiveIntensity: 0.4 }));
+  const cross = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.84), new THREE.MeshBasicMaterial({ color: 0xffffff })); cross.position.y = 0.31;
+  const cross2 = cross.clone(); cross2.rotation.y = Math.PI / 2;
+  box.castShadow = true; crate.add(box, band, cross, cross2); crate.position.copy(at).setY(at.y + 14); scene.add(crate);
+  ring(at, 0x7fffd0, 0.8, 1.2, 1.2, 0.04, 0.2);
+  zones.push({ g: crate, t: 0, life: 7, kind: 'crate', at });
+}
+function updateCrate(z, dt) {
+  const y = Math.max(z.at.y + 0.3, z.at.y + 14 - z.t * z.t * 18);
+  z.g.position.y = y;
+  if (!z.landed && y <= z.at.y + 0.31) {
+    z.landed = true; ssfx('boom'); dust(z.at, 10, 1.4, 1.3); SK.shake = 0.6;
+    P.mag = H.W.mag; P.reload = 0; P.dmgT = 6; P.dmgMul = 1.3;
+    ring(z.at, 0x7fffd0, 0.3, 4, 0.5); bubble(P.pos.clone().add(V(0, 1, 0)), 0x7fffd0, 0.3, 1.4, 0.4);
+    dmgNumber(P.pos.clone().add(V(0, 2.3, 0)), '보급!', false);
+  }
+}
+
+// 우클릭: 루멘 치유 빛줄기 / 모라 치유 다트 (치유할 아군이 없어서 효과만)
+let healBeam = null;
+function supportRmb(dt) {
+  P.cool2 = Math.max(0, P.cool2 - dt);
+  const W = H.W, want = rmb || window.__rmb;
+  if (W.beam) {
+    if (want && !(SK.act && SK.act.noFire)) {
+      if (!healBeam) { healBeam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false })); scene.add(healBeam); }
+      const a = wpos(H.muzzle), b = aimPoint.clone(); if (b.distanceTo(a) > 15) b.copy(a).add(b.sub(a).setLength(15));
+      healBeam.visible = true; healBeam.position.copy(a); healBeam.lookAt(b);
+      const w = 0.05 + Math.sin(performance.now() / 50) * 0.015; healBeam.scale.set(w, w, a.distanceTo(b));
+      if (Math.random() < dt * 30) sparks(b, 1, null, 0xfff0a0);
+    } else if (healBeam) healBeam.visible = false;
+  } else if (healBeam) healBeam.visible = false;
+  if (W.dart && want && P.cool2 <= 0 && P.cool <= 0) {
+    P.cool2 = 0.32; P.cool = 0.15;
+    const a = wpos(H.muzzle); tracer(a, aimPoint.clone(), 'heal'); sparks(aimPoint, 4, null, 0x8aff9a);
+    recoilPos.v.z += 1; recoilRot.v.x += 3; if (AC) { const t = AC.currentTime; tone(t, 1200, 1800, 0.08, 0.15, 'triangle'); }
+  }
+}
 // ───────── 스킬 ─────────
 const SK = { charges: 2, chT: 0, holo: null, buff: 0, cd: { ab1: 0, ab2: 0 }, ult: 0, act: null, barrier: null, dome: null, shieldT: 0, glow: 0, fovAdd: 0, shake: 0 };
 const ABIL = {
   ratchet: { ab1: { name: '돌진', cd: 7 }, ab2: { name: '내려찍기', cd: 10 }, ult: { name: '철갑 돌격', cost: 1300 } },
   orbit: { ab1: { name: '이동형 방벽', cd: 1.2, toggle: true }, ab2: { name: '반발 펄스', cd: 8 }, ult: { name: '방벽 돔', cost: 1500 } },
   tick: { ab1: { name: '순간이동', cd: 3.5, charges: 2 }, ab2: { name: '홀로그램 분신', cd: 9 }, ult: { name: '추적 드론', cost: 1200 } },
+  phase: { ab1: { name: '폭발 도약', cd: 8 }, ab2: { name: '점착 폭탄', cd: 7 }, ult: { name: '박격포 포격', cost: 1400 } },
+  lumen: { ab1: { name: '가속 보호막', cd: 12 }, ab2: { name: '치유 장판', cd: 14 }, ult: { name: '빛의 고리', cost: 1400 } },
+  mora: { ab1: { name: '가속 장치', cd: 12 }, ab2: { name: '섬광 수류탄', cd: 11 }, ult: { name: '전술 보급', cost: 1300 } },
+  iko: { ab1: { name: '방패 드론', cd: 10 }, ab2: { name: '정화', cd: 12 }, ult: { name: '나노 구름', cost: 1400 } },
   nok: { ab1: { name: '석판 방패', cd: 1.0, toggle: true }, ab2: { name: '지면 강타', cd: 9 }, ult: { name: '전사의 함성', cost: 1400 } },
 };
 // 육각 무늬 텍스처 (방벽·돔)
@@ -1019,6 +1243,26 @@ function useSkill(slot) {
     if (slot === 'ab1') { if (SK.charges <= 0) return; SK.charges--; blink(); return; }
     if (slot === 'ab2') { holo(); }
     if (slot === 'ult') { ssfx('ult'); for (let i = 0; i < 3; i++) { const d = makeDrone(); d.t = i / 3 * Math.PI * 2; d.life = 8; d.g.position.copy(P.pos).add(V(0, 1.8, 0)); drones.push(d); } }
+  } else if (id === 'phase') {
+    if (slot === 'ab1') {
+      const hv = V(P.vel.x, 0, P.vel.z); const dir = hv.length() > 1 ? hv.normalize() : aimFwd.clone();
+      explode(P.pos.clone().add(V(0, 0.1, 0)), 3, 30); P.vel.set(dir.x * 7, 11.5, dir.z * 7); P.ground = false; A.crouchJ.v -= 2;
+      SK.act = { type: 'rjump', t: 0, dur: 0.6 };
+    }
+    if (slot === 'ab2') throwProj('bomb', 17, 9);
+    if (slot === 'ult') { SK.act = { type: 'call', t: 0, dur: 0.9, lock: true, noFire: true, mortar: aimPoint.clone(), n: 0 }; ssfx('ult'); }
+  } else if (id === 'lumen') {
+    if (slot === 'ab1') { SK.act = { type: 'boost', t: 0, dur: 0.45, lock: true }; P.spdT = 3; P.spdMul = 1.4; SK.bubbleT = 3; SK.bubbleC = 0xffd27a; ssfx('shieldOn'); ring(P.pos, 0xffd27a, 0.3, 2.2, 0.4); }
+    if (slot === 'ab2') { SK.act = { type: 'throw', t: 0, dur: 0.5, lock: true, zone: true }; ssfx('whoosh'); }
+    if (slot === 'ult') { SK.act = { type: 'raise', t: 0, dur: 1.2, lock: true, noFire: true }; ssfx('ult'); }
+  } else if (id === 'mora') {
+    if (slot === 'ab1') { SK.act = { type: 'boost', t: 0, dur: 0.45, lock: true }; P.spdT = 3; P.spdMul = 1.35; ssfx('shieldOn'); ring(P.pos, 0x7fdcff, 0.3, 4, 0.5); }
+    if (slot === 'ab2') throwProj('flash', 16, 12, { life: 0.9 });
+    if (slot === 'ult') { SK.act = { type: 'call', t: 0, dur: 0.8, lock: true, noFire: true, supply: true }; ssfx('ult'); }
+  } else if (id === 'iko') {
+    if (slot === 'ab1') { SK.act = { type: 'boost', t: 0, dur: 0.45, lock: true }; const d = makeDrone(); d.g.children[2].material = new THREE.MeshBasicMaterial({ color: 0x7fffd0 }); d.guard = true; d.life = 4; d.g.position.copy(P.pos).add(V(0, 1.8, 0)); drones.push(d); SK.bubbleT = 4; SK.bubbleC = 0x7fffd0; ssfx('shieldOn'); }
+    if (slot === 'ab2') { SK.act = { type: 'boost', t: 0, dur: 0.5, lock: true, cleanse: true }; }
+    if (slot === 'ult') { SK.act = { type: 'call', t: 0, dur: 0.8, lock: true, noFire: true, nano: true }; ssfx('ult'); }
   } else if (id === 'nok') {
     if (slot === 'ab1') {
       if (SK.barrier && SK.barrier.on) { SK.barrier.on = false; ssfx('shieldOff'); }
@@ -1051,6 +1295,7 @@ function updateSkills(dt) {
   }
   for (let i = drones.length - 1; i >= 0; i--) {
     const d = drones[i]; d.t += dt; d.life -= dt; d.fire -= dt;
+    if (d.guard) { const an = d.t * 2.2; d.g.position.lerp(P.pos.clone().add(V(Math.cos(an) * 0.9, 2.0, Math.sin(an) * 0.9)), 1 - Math.exp(-6 * dt)); d.g.lookAt(P.pos.clone().add(V(0, 1, 0))); d.ring.rotation.z += dt * 8; if (d.life <= 0) { scene.remove(d.g); drones.splice(i, 1); } continue; }
     if (!d.target || d.target.dead) { let best = null, bd = 25; for (const m of dummies) { if (m.dead) continue; const k = dummyPos(m).distanceTo(P.pos); if (k < bd) { bd = k; best = m; } } d.target = best; }
     let goal;
     const ang = d.t * 1.6 + i * 2.1;
@@ -1066,6 +1311,14 @@ function updateSkills(dt) {
     }
     if (d.life <= 0) { scene.remove(d.g); sparks(d.g.position, 6, null, 0xffa050); drones.splice(i, 1); }
   }
+  if (P.spdT > 0) { P.spdT -= dt; if (P.spdT <= 0) P.spdMul = 1; else if (Math.random() < dt * 20) dust(P.pos, 1, 0.3, 0.5); }
+  if (P.dmgT > 0) { P.dmgT -= dt; if (P.dmgT <= 0) P.dmgMul = 1; }
+  if (SK.bubbleT > 0) {
+    SK.bubbleT -= dt;
+    if (!SK.selfB) { SK.selfB = new THREE.Mesh(new THREE.SphereGeometry(1.1, 24, 14), shieldMat(0xffffff, [6, 3])); scene.add(SK.selfB); }
+    SK.selfB.visible = true; SK.selfB.material.color.set(SK.bubbleC || 0xffffff);
+    SK.selfB.position.copy(P.pos).setY(P.pos.y + 1.0); SK.selfB.material.opacity = 0.45 * Math.min(1, SK.bubbleT / 0.4);
+  } else if (SK.selfB) SK.selfB.visible = false;
   if (SK.buff > 0) {
     SK.buff -= dt;
     if (Math.random() < dt * 30) { const e = new THREE.Mesh(sparkGeo, new THREE.MeshBasicMaterial({ color: Math.random() < 0.5 ? 0xffa040 : 0xffd080 })); const a = Math.random() * 6.28; e.position.copy(P.pos).add(V(Math.cos(a) * 0.5, 0.2 + Math.random() * 1.4, Math.sin(a) * 0.5)); scene.add(e); fx.push({ o: e, t: 0, life: 0.8, kind: 'ember', v: V(0, 1.4, 0) }); }
@@ -1117,6 +1370,37 @@ function updateSkills(dt) {
         const c = P.pos.clone().add(V(0, 1.1, 0)).addScaledVector(aimFwd, 0.6);
         bubble(c, 0x8fdcff, 0.3, 5.5, 0.4); ring(P.pos, 0x8fdcff, 0.3, 5.5, 0.4);
         aoe(P.pos, 5.5, 40, 6); SK.shake = 0.5; A.bodyKick.v -= 3;
+      }
+      if (a.t > a.dur) SK.act = null;
+    } else if (a.type === 'throw') {
+      if (!a.fired && a.t > 0.22) {
+        a.fired = true;
+        if (a.zone) { const at = aimPoint.clone(); if (at.distanceTo(P.pos) > 14) at.copy(P.pos).add(aimPoint.clone().sub(P.pos).setLength(14)); at.y = groundUnder(at.x, at.z, at.y + 0.5); healZone(at); ring(at, 0xffe08a, 0.2, 3, 0.4); if (AC) { const t = AC.currentTime; tone(t, 600, 1200, 0.4, 0.2, 'triangle'); } }
+        else releaseThrow(a);
+      }
+      if (a.t > a.dur) SK.act = null;
+    } else if (a.type === 'rjump') { if (a.t > a.dur) SK.act = null;
+    } else if (a.type === 'boost') {
+      if (a.cleanse && !a.fired && a.t > 0.15) { a.fired = true; ring(P.pos, 0xd8fff0, 0.3, 4, 0.45); bubble(P.pos.clone().add(V(0, 1, 0)), 0xb0ffe0, 0.3, 1.6, 0.4); for (let k = 0; k < 24; k++) { const e = new THREE.Mesh(sparkGeo, new THREE.MeshBasicMaterial({ color: k % 2 ? 0xffffff : 0x9affc8 })); const an = Math.random() * 6.28; e.position.copy(P.pos).add(V(Math.cos(an) * 0.6, 0.3 + Math.random(), Math.sin(an) * 0.6)); scene.add(e); fx.push({ o: e, t: 0, life: 0.9, kind: 'ember', v: V(Math.cos(an) * 1.5, 1.8, Math.sin(an) * 1.5) }); } if (AC) { const t = AC.currentTime; tone(t, 800, 1600, 0.4, 0.2, 'triangle'); tone(t + 0.1, 1200, 2400, 0.3, 0.12); } }
+      if (a.t > a.dur) SK.act = null;
+    } else if (a.type === 'call') {
+      if (a.mortar && a.t > 0.35 && a.n < 3 && a.t > 0.35 + a.n * 0.45) { // 박격포: 조준점 근처로 3발
+        const c = a.mortar.clone().add(V((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4)); c.y = groundUnder(c.x, c.z, c.y + 0.5);
+        ring(c, 0xff5a3a, 3.5, 4, 1.0, 0.04, 0.08);
+        spawnProj('shell', c.clone().add(V(0, 26, 0)), V(0, -30, 0), { g: 4 }); a.n++;
+        if (AC) { const t = AC.currentTime; tone(t, 1600, 400, 0.8, 0.12, 'sine'); }
+      }
+      if (a.supply && !a.fired && a.t > 0.35) { a.fired = true; supplyDrop(); }
+      if (a.nano && !a.fired && a.t > 0.35) { a.fired = true; nanoCloud(); ring(P.pos, 0x9affc8, 0.3, 4.5, 0.5); if (AC) { const t = AC.currentTime; burst(t, 1.0, 2500, 0.5, 0.4, 'bandpass'); tone(t, 400, 1600, 0.8, 0.15, 'triangle'); } }
+      if (a.t > a.dur + (a.mortar ? 0.6 : 0)) SK.act = null;
+    } else if (a.type === 'raise') { // 루멘 궁: 지팡이를 들어 빛의 고리
+      if (!a.fired && a.t > 0.45) {
+        a.fired = true; SK.shake = 0.5;
+        for (let k = 0; k < 3; k++) setTimeout(() => ring(P.pos, 0xffe6a0, 0.5, 10, 0.8, 0.06 + k * 0.4, 0.12), k * 120);
+        const pil = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 1.2, 12, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0xffe6a0, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+        pil.position.copy(P.pos).add(V(0, 6, 0)); scene.add(pil); fx.push({ o: pil, t: 0, life: 0.9, kind: 'pillar' });
+        for (let k = 0; k < 30; k++) { const e = new THREE.Mesh(sparkGeo, new THREE.MeshBasicMaterial({ color: 0xfff0b0 })); const an = Math.random() * 6.28, r = Math.random() * 6; e.position.copy(P.pos).add(V(Math.cos(an) * r, 0.1, Math.sin(an) * r)); scene.add(e); fx.push({ o: e, t: 0, life: 1.4, kind: 'ember', v: V(0, 2 + Math.random() * 2, 0) }); }
+        if (AC) { const t = AC.currentTime; tone(t, 440, 880, 1.0, 0.3, 'triangle'); tone(t, 660, 1320, 1.0, 0.2, 'triangle'); tone(t, 880, 1760, 1.0, 0.12); }
       }
       if (a.t > a.dur) SK.act = null;
     } else if (a.type === 'gslam') {
@@ -1226,6 +1510,18 @@ function actionPose() {
   } else if (a.type === 'pulse') {
     const w = t < 0.12 ? smooth(t / 0.12) : t < 0.32 ? 1 : Math.max(0, 1 - (t - 0.32) / 0.2);
     o.handW = w; o.handMode = 'thrust'; o.handK = t < 0.16 ? t / 0.16 : 1; o.lean = 0.08 * w;
+  } else if (a.type === 'throw') {
+    const w = t < 0.1 ? smooth(t / 0.1) : t < 0.32 ? 1 : Math.max(0, 1 - (t - 0.32) / 0.18);
+    o.handW = w; o.handMode = 'throw'; o.handK = smooth(clamp((t - 0.1) / 0.14, 0, 1)); o.twist = 0.25 * (1 - o.handK) * w - 0.2 * o.handK * w; o.lean = 0.1 * o.handK * w;
+  } else if (a.type === 'call') {
+    const w = t < 0.25 ? smooth(t / 0.25) : t > a.dur - 0.25 ? Math.max(0, (a.dur - t) / 0.25) : 1;
+    o.handW = w; o.handMode = 'call'; o.handK = 1; o.lean = -0.08 * w;
+  } else if (a.type === 'boost') {
+    const w = t < 0.12 ? smooth(t / 0.12) : Math.max(0, 1 - (t - 0.25) / 0.2);
+    o.handW = w; o.handMode = a.cleanse ? 'call' : 'thrust'; o.handK = 1;
+  } else if (a.type === 'raise') {
+    const w = t < 0.35 ? smooth(t / 0.35) : t > 0.9 ? Math.max(0, 1 - (t - 0.9) / 0.3) : 1;
+    o.gunW = w; o.raise = 1; o.gunPitch = 1.45; o.lean = -0.12 * w;
   } else if (a.type === 'dome') {
     const up = t < 0.3 ? smooth(t / 0.3) : 1, down = t < 0.3 ? 0 : smooth(Math.min(1, (t - 0.3) / 0.14));
     const back = t > 0.65 ? smooth(Math.min(1, (t - 0.65) / 0.3)) : 0;
@@ -1245,7 +1541,7 @@ function update(dt) {
   if (locked) { if (keys.KeyW) wish.add(fwd); if (keys.KeyS) wish.sub(fwd); if (keys.KeyD) wish.add(right); if (keys.KeyA) wish.sub(right); }
   if (window.__sim) wish.add(fwd.clone().multiplyScalar(window.__sim.z)).add(right.clone().multiplyScalar(window.__sim.x));
   const back = wish.dot(fwd) < -0.1;
-  const spd = C.speed * (back ? 0.85 : 1) * (P.reload > 0 ? 0.9 : 1) * (SK.barrier && SK.barrier.on ? (H.id === 'nok' ? 0.65 : 0.7) : 1) * (SK.buff > 0 ? 1.1 : 1) * (SK.act && SK.act.type === 'dome' ? 0.3 : 1);
+  const spd = P.spdMul * C.speed * (back ? 0.85 : 1) * (P.reload > 0 ? 0.9 : 1) * (SK.barrier && SK.barrier.on ? (H.id === 'nok' ? 0.65 : 0.7) : 1) * (SK.buff > 0 ? 1.1 : 1) * (SK.act && SK.act.type === 'dome' ? 0.3 : 1);
   if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(spd);
   const accel = P.ground ? 12 : 2.5;
   const moveLock = SK.act && ['slam', 'charge', 'ram'].includes(SK.act.type);
@@ -1253,7 +1549,9 @@ function update(dt) {
     P.vel.x += (wish.x - P.vel.x) * Math.min(1, accel * dt);
     P.vel.z += (wish.z - P.vel.z) * Math.min(1, accel * dt);
   }
-  updateSkills(dt);
+  updateSkills(dt); updateProjs(dt); updateZones(dt);
+  supportRmb(dt);
+  $('flashov').style.opacity = Math.max(0, (+$('flashov').style.opacity || 0) - dt * 1.2);
   if (!moveLock && P.ground && (keys.Space && locked || window.__jump)) { P.vel.y = 7.2; P.ground = false; A.crouchJ.v -= 1.2; window.__jump = 0; }
   P.vel.y -= 19 * dt;
   const wasAir = !P.ground, vy = P.vel.y;
@@ -1299,6 +1597,7 @@ function update(dt) {
     d.knock = Math.max(0, d.knock - dt * 1.5);
     d.top.rotation.x = -d.fall * 1.45 - d.knock;
     d.flash = Math.max(0, d.flash - dt);
+    if (d.blind > 0) { d.blind -= dt; d.t -= dt; d.top.rotation.y = Math.sin(performance.now() / 60) * 0.15; } else d.top.rotation.y = 0;
     d.mat.emissive.setRGB(d.flash > 0 ? 1 : 0, d.flash > 0 ? 0.25 : 0, d.flash > 0 ? 0.2 : 0);
     d.mat.color.setHex(d.dead ? 0x6b7080 : 0xd8dde6);
   }
@@ -1310,6 +1609,8 @@ function update(dt) {
     if (f.kind === 'tracer' || f.kind === 'beam') { f.o.material.opacity = 0.85 * (1 - f.t / f.life); if (f.kind === 'beam') f.o.scale.x = f.o.scale.y = 0.025 * (1 - f.t / f.life); }
     if (f.kind === 'ring' || f.kind === 'bubble') { const k = 1 - Math.pow(1 - f.t / f.life, 3), r = lerp(f.r0, f.r1, k); f.o.scale.set(r, f.kind === 'ring' ? 1 : r, r); f.o.material.opacity = 0.9 * (1 - f.t / f.life); }
     if (f.kind === 'dust') { f.o.position.addScaledVector(f.v, dt); f.v.multiplyScalar(Math.exp(-3 * dt)); f.o.scale.setScalar(f.size * (0.4 + f.t * 1.4)); f.o.material.opacity = 1 - f.t / f.life; }
+    if (f.kind === 'light') f.o.intensity *= Math.pow(0.002, dt);
+    if (f.kind === 'pillar') { f.o.material.opacity = 0.5 * (1 - f.t / f.life); f.o.scale.set(1 + f.t, 1, 1 + f.t); }
     if (f.kind === 'ghost') f.o.traverse((o) => { if (o.isMesh) o.material.opacity = 0.5 * (1 - f.t / f.life); });
     if (f.kind === 'spike') { const k = f.t < 0 ? 0 : f.t < 0.12 ? smooth(f.t / 0.12) : f.t > f.life - 0.35 ? (f.life - f.t) / 0.35 : 1; f.o.position.y = f.y0 - f.h / 2 + f.h * 0.85 * k; }
     if (f.kind === 'ember') { f.o.position.addScaledVector(f.v, dt); f.o.scale.setScalar(1 - f.t / f.life); }
@@ -1319,7 +1620,7 @@ function update(dt) {
       f.el.style.left = ((p.x + 1) / 2 * innerWidth) + 'px'; f.el.style.top = ((1 - p.y) / 2 * innerHeight) + 'px';
       f.el.style.opacity = 1 - Math.max(0, f.t - 0.5) / 0.3; f.el.style.display = p.z < 1 ? 'block' : 'none';
     }
-    if (f.t >= f.life) { if (f.o && f.keep) { f.o.visible = false; } else if (f.o) { scene.remove(f.o); if (f.kind === 'tracer' || f.kind === 'ring' || f.kind === 'bubble') f.o.geometry.dispose(); } if (f.el) f.el.remove(); fx.splice(i, 1); }
+    if (f.t >= f.life) { if (f.o && f.keep) { f.o.visible = false; } else if (f.o) { scene.remove(f.o); if (f.kind === 'tracer' || f.kind === 'ring' || f.kind === 'bubble' || f.kind === 'pillar') f.o.geometry.dispose(); } if (f.el) f.el.remove(); fx.splice(i, 1); }
   }
   hitT -= dt; $('hit').style.opacity = hitT > 0 ? 1 : 0;
   const spreadPx = (H.W.spread + P.bloom) * innerHeight * 0.75 + 10;
@@ -1339,7 +1640,7 @@ addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; cam
 
 const first = new URLSearchParams(location.search).get('hero') || 'ratchet';
 setHero(HEROES[first] ? first : 'ratchet').then(() => {
-  $('go').textContent = '시작'; $('load').textContent = '1 ~ 4 키로 영웅 바꾸기';
+  $('go').textContent = '시작'; $('load').textContent = '1 ~ 8 키로 영웅 바꾸기';
   getHero(first === 'orbit' ? 'ratchet' : 'orbit').catch(() => {}); // 다른 영웅 미리 받기
 }).catch((e) => { $('go').textContent = '불러오기 실패'; $('load').textContent = String(e); console.error(e); });
 frame();
