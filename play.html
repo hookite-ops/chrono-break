@@ -40,6 +40,21 @@
   #start p { margin-top: 10px; color: var(--dim); font-size: 16px; }
   #start .go { display: inline-block; margin-top: 28px; padding: 14px 34px; border-radius: 999px; background: var(--acc); color: #111; font-weight: 900; font-size: 18px; }
   #start .load { margin-top: 18px; font-size: 13px; color: var(--dim); }
+  #abil { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); display: flex; gap: 12px; align-items: flex-end; }
+  .ab { position: relative; width: 92px; height: 64px; border-radius: 10px; background: var(--panel); overflow: hidden; border: 2px solid rgba(255,255,255,.12); text-align: center; }
+  .ab .fill { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.55); height: 0; }
+  .ab kbd { position: relative; display: inline-block; margin-top: 8px; padding: 0 6px; border-radius: 4px; background: #262b38; color: var(--ink); font: 700 11px/18px system-ui; }
+  .ab .nm { position: relative; display: block; margin-top: 6px; font-size: 13px; font-weight: 700; }
+  .ab .cdn { position: absolute; inset: 0; display: grid; place-items: center; font-size: 26px; font-weight: 900; text-shadow: 0 2px 4px #000; }
+  .ab.cool .nm, .ab.cool kbd { opacity: .35; }
+  .ab.on { border-color: #7fdcff; box-shadow: 0 0 14px rgba(127,220,255,.6); }
+  #ult { --p: 0deg; position: relative; width: 84px; height: 84px; border-radius: 50%; background: conic-gradient(var(--acc) var(--p), rgba(255,255,255,.12) 0); display: grid; place-items: center; margin: 0 4px; }
+  #ult::before { content: ""; position: absolute; inset: 6px; border-radius: 50%; background: #141821; }
+  #ult .pct { position: relative; font-size: 22px; font-weight: 900; }
+  #ult .nm { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 12px; color: var(--dim); }
+  #ult.ready { box-shadow: 0 0 22px var(--acc); animation: pulse 1s infinite; }
+  #ult.ready .pct { color: var(--acc); }
+  @keyframes pulse { 50% { box-shadow: 0 0 6px var(--acc); } }
   .dmg { position: fixed; pointer-events: none; font-weight: 900; font-size: 20px; color: #fff; text-shadow: 0 2px 4px #000, 0 0 2px #000; transform: translate(-50%, -50%); }
   .dmg.crit { color: #ff5555; font-size: 26px; }
   #small { display: none; position: fixed; inset: 0; background: #0d0f14; place-items: center; text-align: center; padding: 24px; font-size: 17px; line-height: 1.6; z-index: 9; }
@@ -58,6 +73,11 @@
   <div><kbd>T</kbd>정면에서 보기 &nbsp;<kbd>1</kbd><kbd>2</kbd>영웅 바꾸기</div>
 </div>
 <div id="stats">처치 <b id="kills">0</b> · 명중률 <b id="acc">-</b><br>마지막 한 발 <b id="last">0</b></div>
+<div id="abil">
+  <div class="ab" id="ab1"><div class="fill"></div><kbd>SHIFT</kbd><span class="nm"></span><b class="cdn"></b></div>
+  <div id="ult"><div class="pct">0%</div><span class="nm"></span></div>
+  <div class="ab" id="ab2"><div class="fill"></div><kbd>E</kbd><span class="nm"></span><b class="cdn"></b></div>
+</div>
 <div id="name"><b id="hname">래칫</b><div id="hsub">돌파형 탱커 · 충각판 산탄총</div></div>
 <div id="ammo"><small id="reload"></small><b id="mag">6</b><span id="magmax"> / 6</span></div>
 <div id="start"><div class="box">
