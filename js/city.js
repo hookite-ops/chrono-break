@@ -35,10 +35,10 @@ function mats() {
     awning: T('awning', { tw: 2.5, n: false, side: THREE.DoubleSide, r: 0.9 }),
     paint: M('#d9d2bd', { r: 0.7 }), paintY: M('#e0b23a', { r: 0.7 }),
     curb: M('#8a8580', { r: 0.8 }), trimDk: M('#2c2a30', { r: 0.6 }), steel: M('#3a3d44', { m: 0.7, r: 0.35 }),
-    brass: M('#b8904e', { m: 0.85, r: 0.3 }), glass: M('#1a2433', { m: 0.2, r: 0.08 }), rubber: M('#151518', { r: 0.9 }),
+    brass: M('#b8904e', { m: 0.85, r: 0.3 }), glass: M('#1a2433', { m: 0.2, r: 0.28 }), rubber: M('#151518', { r: 0.9 }),
     glowO: M('#ff8a2a', { e: 0xff7a1a, ei: 3.0 }), glowC: M('#4fe3ff', { e: 0x3fd8ff, ei: 3.0 }), glowW: M('#ffd9a0', { e: 0xffc070, ei: 3.2 }),
     glowR: M('#ff4050', { e: 0xff2a3a, ei: 3.0 }), bulb: M('#ffe0a8', { e: 0xffc36a, ei: 4.0 }),
-    puddle: new THREE.MeshStandardMaterial({ color: 0x10141c, roughness: 0.04, metalness: 0.0 }),
+    puddle: new THREE.MeshStandardMaterial({ color: 0x10141c, roughness: 0.22, metalness: 0.0 }),
   });
   return MT;
 }
@@ -263,7 +263,7 @@ function carGroup(col = '#2f8f94', kind = 'sedan') {
   if (kind === 'van') { s.moveTo(-L / 2, 0.3); s.lineTo(L / 2, 0.3); s.lineTo(L / 2, 1.0); s.lineTo(L / 2 - 0.5, 1.85); s.lineTo(-L / 2, 1.9); s.closePath(); }
   else { s.moveTo(-L / 2, 0.32); s.lineTo(L / 2, 0.32); s.lineTo(L / 2, 0.72); s.lineTo(L / 2 - 0.9, 0.82); s.lineTo(L / 2 - 1.6, 1.38); s.lineTo(-L / 2 + 1.05, 1.42); s.lineTo(-L / 2 + 0.25, 0.92); s.lineTo(-L / 2, 0.85); s.closePath(); }
   const body = new THREE.ExtrudeGeometry(s, { depth: 1.7, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.08, bevelSegments: 2 }); body.translate(0, 0, -0.85);
-  const paint = new THREE.MeshStandardMaterial({ color: col, roughness: 0.28, metalness: 0.55 });
+  const paint = new THREE.MeshStandardMaterial({ color: col, roughness: 0.35, metalness: 0.5 });
   const bm = new THREE.Mesh(body, paint); g.add(bm);
   // 유리
   const w = new THREE.Shape();
@@ -569,7 +569,7 @@ function buildCity(D, ctx, theme) {
     put(chunkGeo(s), i % 6 ? m.concrete : m.brick, Math.cos(a) * r, 4.6 + rr() * 5.5, Math.sin(a) * r, rr() * 3, rr() * 3, rr() * 3, 1, 1, 1);
   }
   // 깨진 유리 조각(빛을 받아 반짝)
-  const shard = new THREE.MeshStandardMaterial({ color: 0x9fd8ff, roughness: 0.05, metalness: 0.9, transparent: true, opacity: 0.55, side: THREE.DoubleSide, emissive: 0x2a5070, emissiveIntensity: 0.5 });
+  const shard = new THREE.MeshStandardMaterial({ color: 0x9fd8ff, roughness: 0.3, metalness: 0.6, transparent: true, opacity: 0.55, side: THREE.DoubleSide, emissive: 0x2a5070, emissiveIntensity: 0.5 });
   const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0.5, 0, -0.3, -0.4, 0, 0.35, -0.3, 0], 3)); sg.computeVertexNormals();
   const shards = new THREE.InstancedMesh(sg, shard, 60);
   for (let i = 0; i < 60; i++) { const a = rr() * Math.PI * 2, r = 2 + rr() * 8; _e.set(rr() * 6, rr() * 6, rr() * 6); _q.setFromEuler(_e); const s = 0.3 + rr() * 0.6; _m.compose(_v.set(Math.cos(a) * r, 4.2 + rr() * 6, Math.sin(a) * r), _q, _s.set(s, s, s)); shards.setMatrixAt(i, _m); }
@@ -580,7 +580,7 @@ function buildCity(D, ctx, theme) {
     const ph = rr() * 6; anim.push((dt, t) => { c.position.y = y + Math.sin(t * 0.6 + ph) * 0.08; c.rotation.z = rz + Math.sin(t * 0.4 + ph) * 0.01; });
   }
   // 시간 결정 + 멈춘 톱니바퀴
-  const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.9, 0), new THREE.MeshStandardMaterial({ color: 0xffa050, emissive: 0xff7a1a, emissiveIntensity: 1.25, roughness: 0.15, metalness: 0.1 }));
+  const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.9, 0), new THREE.MeshStandardMaterial({ color: 0xffa050, emissive: 0xff7a1a, emissiveIntensity: 1.25, roughness: 0.3, metalness: 0.1 }));
   crystal.scale.set(0.9, 1.4, 0.9); crystal.position.set(0, cy, 0); add(crystal); ctx.core = crystal; ctx.coreY = cy;
   const inner = new THREE.Mesh(new THREE.OctahedronGeometry(1.25, 0), new THREE.MeshBasicMaterial({ color: 0xff9a40, transparent: true, opacity: 0.18, wireframe: true }));
   inner.position.copy(crystal.position); add(inner);

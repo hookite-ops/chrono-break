@@ -9,6 +9,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { HEROES as HD, DIFF } from './data.js';
 
 const $ = (id) => document.getElementById(id);
@@ -48,6 +49,12 @@ function setupPost() {
   composer = new EffectComposer(renderer, rt);
   composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight);
   composer.addPass(new RenderPass(scene, camera));
+  // 잘못된 밝기값(무한대·NaN)이 블룸에 번져 검은 네모가 생기는 것을 막음
+  composer.addPass(new ShaderPass({
+    uniforms: { tDiffuse: { value: null } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0); gl_FragColor = vec4(clamp(c.rgb, 0.0, 32.0), c.a); }',
+  }));
   bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.42, 0.4, 1.0);
   composer.addPass(bloomPass);
   vmPass = new RenderPass(scene, vmCam); vmPass.clear = false; vmPass.clearDepth = true; vmPass.enabled = false;
@@ -1907,7 +1914,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 let CUR = null, PLAYER = null, allies = [], dummies = [];
 let yawRate = 0, pitchRate = 0;
 const units = [];
-const opts = { diff: 1, sens: 1, hero: 'ratchet', gfx: 1, fp: true };
+const opts = { diff: 1, sens: 1, hero: 'ratchet', gfx: 1, fp: false };
 try { Object.assign(opts, JSON.parse(localStorage.getItem('cb_opts') || '{}')); } catch (e) {}
 const saveOpts = () => { try { localStorage.setItem('cb_opts', JSON.stringify(opts)); } catch (e) {} };
 const newP = () => ({
@@ -2360,7 +2367,6 @@ addEventListener('keydown', (e) => {
     const slot = (e.code === 'ShiftLeft' || e.code === 'ShiftRight') ? 'ab1' : e.code === 'KeyE' ? 'ab2' : e.code === 'KeyQ' ? 'ult' : null;
     if (slot && !PLAYER.dead && matchState !== 'setup' || (slot && matchState === 'setup' && slot !== 'ult')) { bind(PLAYER); useSkill(slot); unbind(PLAYER); }
     if (e.code === 'KeyH') openSwap();
-    if (e.code === 'KeyV') { opts.fp = !opts.fp; saveOpts(); centerMsg(opts.fp ? '1인칭 시점' : '3인칭 시점', 'V로 바꾸기', 1.0); }
     if (e.code === 'Tab') { e.preventDefault(); $('board').classList.remove('hidden'); renderBoard(); }
   }
   if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
@@ -2417,7 +2423,7 @@ function fpPatch(m, on) {
   if (m.userData.uFP) m.userData.uFP.value = on ? 1 : 0;
   else m.userData.fpOn = on;
 }
-function fpWanted() { return !!(opts.fp && PLAYER && !PLAYER.dead); }
+function fpWanted() { return false; }   // 지금은 3인칭만
 function applyFP(U, on) {
   const H0 = U.H; if (!H0) return;
   if (H0.fp === on && H0.fpApplied) return;
@@ -2733,7 +2739,6 @@ async function boot() {
 heroCards($('herogrid'), (k) => { opts.hero = k; saveOpts(); }, opts.hero);
 $('diff').value = String(opts.diff); $('diff').onchange = () => { opts.diff = +$('diff').value; saveOpts(); };
 $('sens').value = String(opts.sens); $('sens').oninput = () => { opts.sens = +$('sens').value; saveOpts(); };
-$('view').value = opts.fp ? '1' : '0'; $('view').onchange = () => { opts.fp = $('view').value === '1'; saveOpts(); };
 $('gfx').value = String(opts.gfx ?? 1); $('gfx').onchange = () => { opts.gfx = +$('gfx').value; saveOpts(); setupPost(); };
 $('startbtn').onclick = () => { audio(); startAmbience(); startMatch(HEROES[opts.hero] ? opts.hero : 'ratchet'); };
 $('resume').onclick = () => lock();
