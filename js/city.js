@@ -76,7 +76,7 @@ function flushCones() {
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
       uniforms: { col: { value: c.col.clone().multiplyScalar(c.a * 14) } },
       vertexShader: `varying float vH; varying vec3 vN; varying vec3 vV; varying float vDist; void main(){ vH = -position.y; vec4 wp = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-wp.xyz); vDist = -wp.z; gl_Position = projectionMatrix * wp; }`,
-      fragmentShader: `uniform vec3 col; varying float vH; varying vec3 vN; varying vec3 vV; varying float vDist; void main(){ float f = pow(abs(dot(normalize(vN), normalize(vV))), 2.0); float a = pow(1.0 - vH, 1.6) * f * 0.22 * smoothstep(1.5, 5.0, vDist); gl_FragColor = vec4(col * a, 1.0); }`,
+      fragmentShader: `uniform vec3 col; varying float vH; varying vec3 vN; varying vec3 vV; varying float vDist; void main(){ float f = dot(normalize(vN), normalize(vV)); f *= f; float a = pow(clamp(1.0 - vH, 0.0, 1.0), 1.6) * f * 0.22 * smoothstep(1.5, 5.0, vDist); gl_FragColor = vec4(col * a, 1.0); }`,
     });
     const mesh = new THREE.Mesh(geo, mat); mesh.position.set(c.x, c.y, c.z); mesh.scale.set(c.r, c.h, c.r); mesh.renderOrder = 3; add(mesh);
   }
