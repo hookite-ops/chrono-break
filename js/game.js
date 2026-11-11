@@ -2063,6 +2063,7 @@ function setHeroFor(U, id) {
   for (const n in B) B[n].quaternion.copy(data.rest[n]);
   scene.add(m); m.updateMatrixWorld(true);
   const Hh = { id, C, W: WPN[C.wpn], model: m, B, rest: data.rest, dirs: {}, len: {}, palms: {}, footRest: {}, meta: data.meta, mats };
+  U.camFade = 1;
   const child = { upperarm_R: 'forearm_R', forearm_R: 'hand_R', upperarm_L: 'forearm_L', forearm_L: 'hand_L', thigh_R: 'shin_R', thigh_L: 'shin_L',
     shin_R: B.foot_R ? 'foot_R' : null, shin_L: B.foot_L ? 'foot_L' : null, spine: B.chest ? 'chest' : 'head', chest: 'head' };
   const tips = data.meta.tips;
@@ -2456,7 +2457,7 @@ function updateCamera(dt) {
   const camQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(P0.pitch + P0.camKick, P0.yaw, 0, 'YXZ'));
   const head = P0.pos.clone().add(V(0, 1.72, 0));
   if (U.dead) { // 쓰러지면 위에서 내려다봄
-    U.deadT += 0;
+    U.deadT += 0; setCamFade(U, 1);
     const k = Math.min(1, (5 - U.respawnT) / 1.2), pos = P0.pos.clone().add(V(Math.sin(gameT * 0.3) * 5, 4 + k * 3, Math.cos(gameT * 0.3) * 5));
     camera.position.lerp(pos, 1 - Math.exp(-3 * dt)); camera.lookAt(P0.pos); camera.updateMatrixWorld(); return;
   }
@@ -2472,19 +2473,27 @@ function updateCamera(dt) {
     unbind(U);
     return;
   }
-  const off = V(...C.cam).applyQuaternion(camQ);
-  // 벽에 박히지 않게 카메라를 당김
-  const dirC = off.clone().normalize(), L = off.length(), hitT = Math.min(L, castRayStatic(head, dirC, L + 0.3) - 0.3);
-  const camPos = head.clone().addScaledVector(dirC, Math.max(0.6, hitT));
+  // 벽에 박히지 않게: 먼저 어깨 쪽으로 옮기고(옆 벽 검사) 그다음 뒤로 뺌(뒤 벽 검사).
+  // 이렇게 하면 벽에 붙어도 카메라가 머리 바로 뒤가 아니라 어깨 위에 남아서 캐릭터가 화면을 안 가림
+  const sideV = V(C.cam[0], C.cam[1], 0).applyQuaternion(camQ), sideL = sideV.length(), sideD = sideV.normalize();
+  const sh = head.clone().addScaledVector(sideD, Math.max(0.12, Math.min(sideL, castRayStatic(head, sideD, sideL + 0.25) - 0.25)));
+  const backD = V(0, 0, 1).applyQuaternion(camQ), backL = C.cam[2];
+  const camPos = sh.clone().addScaledVector(backD, Math.max(0.2, Math.min(backL, castRayStatic(sh, backD, backL + 0.3) - 0.3)));
+  // 카메라가 캐릭터에 가까우면 내 캐릭터를 반투명하게
+  setCamFade(U, Math.min(1, Math.max(0.18, (camPos.distanceTo(head) - 0.5) / 0.9)));
   camera.position.copy(camPos).add(V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(S0.shake * 0.12));
   camera.quaternion.copy(camQ);
   const fov = 74 + S0.fovAdd; if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
   camera.updateMatrixWorld();
   bind(U);
   const cd = V(0, 0, -1).applyQuaternion(camQ);
-  aimPoint = castRay(head.clone().add(off), cd).p;
+  aimPoint = castRay(camPos.clone(), cd).p;
   if (aimPoint.distanceTo(P0.pos) < 2.2) aimPoint = head.clone().addScaledVector(cd, 30);
   unbind(U);
+}
+function setCamFade(U, fa) {
+  if (fa === U.camFade) return; U.camFade = fa;
+  for (const m of U.H.mats) { const tr = fa < 1; if (m.transparent !== tr) { m.transparent = tr; m.depthWrite = !tr; m.needsUpdate = true; } m.opacity = fa; }
 }
 function castRayStatic(o, d, maxD) {
   let best = maxD; const r = new THREE.Ray(o, d), tmp = V();
