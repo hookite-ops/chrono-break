@@ -361,7 +361,7 @@ function fire() {
   if (P.reload > 0) { if (W.reload === 'shell' && P.mag > 0) P.reload = 0; else return; }
   if (W.melee) { if (P.swing < 0 && !(SK.barrier && SK.barrier.on)) { P.swing = 0; P.swingHit = false; P.cool = W.rate; P.shots++; ssfx('whoosh'); } return; }
   if (P.mag <= 0) { startReload(); sfx('click', 1200); P.cool = 0.25; return; }
-  P.mag--; P.cool = W.rate; P.shots++;
+  P.mag--; P.cool = W.rate; P.shots++; P.trig = 1;
   sfx({ pistols: 'rifle', medpistol: 'rifle', nanorifle: 'rifle', launcher: 'launch', staff: 'zap' }[H.C.wpn] || H.C.wpn);
   if (W.reload === 'shell') setTimeout(() => sfx('pump'), 330);
   // 반동: 총은 뒤로·위로, 몸은 살짝 젖혀짐
@@ -407,7 +407,7 @@ const newA = () => ({
   lowerYaw: 0, turning: false, phase: 0, gait: 0, speedS: 0, dir: new THREE.Vector2(0, 1),
   air: new Spring(90, 14), land: new Spring(160, 13), bodyKick: new Spring(180, 16), crouchJ: new Spring(200, 16),
   leanF: new Spring(60, 11), leanS: new Spring(60, 11), sway: new Spring3(90, 12), turnPhase: 0,
-  lastU: { R: 0, L: 0 }, prevVel: V(), headLag: new Spring(70, 12), shift: 0,
+  lastU: { R: 0, L: 0 }, prevVel: V(), headLag: new Spring(70, 12), shift: 0, flinch: new Spring3(150, 11), draw: 0,
 });
 let A = newA();
 
@@ -431,12 +431,187 @@ function footTarget(side, sgn, phaseOff) {
   return { x: sgn * w + d.x * along, y: lift + tl, z: -(d.y * along) + (sgn > 0 ? 0.02 : -0.02) * (H.C.heavy ? 1 : 0), toe, u };
 }
 
+// ───────── 손가락 ─────────
+// 손가락마다 마디 3개. 구부리는 축 = (마디 방향 × 손바닥 방향), 쉬는 자세 기준으로 미리 계산
+const FN = ['thumb', 'index', 'middle', 'ring', 'pinky'];
+const FMAX = { thumb: [0.5, 0.7, 0.95], f: [1.4, 1.6, 1.0] };   // 다 쥐었을 때 각 마디 각도(라디안)
+const HP = {   // [엄지, 검지, 중지, 약지, 새끼] 굽힘 0~1, sp = 벌림
+  relax: { c: [0.22, 0.2, 0.26, 0.32, 0.38], sp: 0.25 },
+  grip: { c: [0.62, 0.4, 0.86, 0.9, 0.94], sp: 0 },     // 방아쇠 손: 검지는 방아쇠에
+  hold: { c: [0.66, 0.82, 0.86, 0.9, 0.94], sp: 0 },    // 방아쇠 없는 손잡이(지팡이)
+  wrap: { c: [0.42, 0.5, 0.56, 0.62, 0.68], sp: 0.08 },  // 앞손잡이 받치기
+  fist: { c: [0.78, 0.93, 0.96, 0.98, 1.0], sp: 0 },
+  open: { c: [0.02, 0.02, 0.03, 0.05, 0.07], sp: 1 },
+  claw: { c: [0.35, 0.4, 0.42, 0.46, 0.5], sp: 0.9 },
+  pinch: { c: [0.6, 0.55, 0.8, 0.88, 0.92], sp: 0 },     // 탄 집기
+  limp: { c: [0.3, 0.35, 0.42, 0.5, 0.55], sp: 0.35 },
+};
+const _fq = new THREE.Quaternion();
+function buildFingers(Hh) {
+  const B = Hh.B; Hh.fing = null;
+  if (!B.index_01_R && !B.index_01_L) return;
+  Hh.fing = {};
+  const TF = Hh.meta.fingers || {};
+  for (const s of 'RL') {
+    if (!B['index_01_' + s] || !B['middle_01_' + s] || !B['pinky_01_' + s]) continue;
+    const mcp = (f) => wpos(B[f + '_01_' + s]);
+    const a = mcp('middle').sub(wpos(B['hand_' + s])).normalize();
+    const lat = mcp('index').sub(mcp('pinky')).normalize();
+    const pn = V().crossVectors(a, lat).normalize();
+    // 손바닥 쪽 정하기: 쉬는 자세에서 손가락 끝이 살짝 굽은 쪽 = 손바닥 (거의 펴져 있으면 설정값 따름)
+    let vote = 0;
+    for (const f of ['index', 'middle', 'ring', 'pinky']) {
+      const tip = TF[`${f}3_${s}`]; if (!tip) continue;
+      vote += V(...tip).sub(mcp(f)).normalize().dot(pn);
+    }
+    const pc = Hh.C[s === 'R' ? 'palmR' : 'palmL'];
+    if (Math.abs(vote) > 0.25) { if (vote < 0) pn.negate(); }
+    else if (pc && pn.dot(V(...pc)) < 0) pn.negate();
+    Hh.fingVote = (Hh.fingVote || '') + s + vote.toFixed(2) + ' ';
+    const ch = FN.map((f) => {
+      const bs = [1, 2, 3].map((i) => B[`${f}_0${i}_${s}`]);
+      if (!bs[0] || !bs[2]) return null;
+      const pts = bs.map((b) => wpos(b));
+      pts.push(TF[`${f}3_${s}`] ? V(...TF[`${f}3_${s}`]) : pts[2].clone().add(pts[2].clone().sub(pts[1])));
+      const segs = bs.map((b, i) => {
+        const d = pts[i + 1].clone().sub(pts[i]).normalize();
+        let k = V().crossVectors(d, pn);
+        if (k.lengthSq() < 1e-6) k = lat.clone();
+        return { b, ax: k.normalize().applyQuaternion(wquat(b).invert()), rest: Hh.rest[b.name] };
+      });
+      let spAx = null;
+      if (f === 'index' || f === 'ring' || f === 'pinky') {
+        const lt = pts[0].clone().sub(mcp('middle')); lt.addScaledVector(a, -lt.dot(a)).normalize();
+        const d = pts[1].clone().sub(pts[0]).normalize();
+        spAx = V().crossVectors(d, lt).normalize().applyQuaternion(wquat(bs[0]).invert());
+      }
+      return { segs, spAx };
+    });
+    Hh.fing[s] = { ch, cur: HP.relax.c.slice(), sp: 0.2 };
+  }
+}
+function mixHP(a, b, k) { return { c: a.c.map((v, i) => v + (b.c[i] - v) * k), sp: a.sp + (b.sp - a.sp) * k }; }
+function handTarget(s, ap) {
+  const C = H.C, W = H.W, rl = H.rl;
+  if (CUR && CUR.dead) return HP.limp;
+  if (C.hold === 'melee') return HP.fist;
+  const trig = (P.trig || 0);
+  const gripT = (k) => ({ c: [HP.grip.c[0], HP.grip.c[1] + 0.32 * k, ...HP.grip.c.slice(2)], sp: 0 });
+  if (s === 'R') return W && (W.melee || W.proj === 'bolt' || W.beam) ? HP.hold : gripT(C.hold === 'dual' ? (P.alt ? 0 : trig) : trig);
+  if (C.hold === 'dual') return gripT(P.alt ? trig : 0);
+  let base = HP.wrap;
+  if (rl && rl.shell) base = HP.pinch; else if (rl && rl.mag) base = mixHP(HP.wrap, HP.grip, 0.4);
+  if (ap.handW > 0) {
+    let sk = HP.open;
+    if (ap.handMode === 'throw') sk = ap.handK < 0.55 ? HP.fist : HP.open;
+    else if (ap.handMode === 'dome') sk = ap.handK > 0.05 ? HP.claw : HP.open;
+    return mixHP(base, sk, ap.handW);
+  }
+  return base;
+}
+function poseFingers(dt, ap) {
+  const F = H.fing; if (!F || window.__nofing) return;
+  P.trig = Math.max(0, (P.trig || 0) - dt * 11);
+  for (const s of 'RL') {
+    const fs = F[s]; if (!fs) continue;
+    const tg = handTarget(s, ap);
+    for (let i = 0; i < 5; i++) fs.cur[i] = damp(fs.cur[i], tg.c[i], i === 1 ? 30 : 16, dt);
+    fs.sp = damp(fs.sp, tg.sp, 10, dt);
+    for (let i = 0; i < 5; i++) {
+      const c = fs.ch[i]; if (!c) continue;
+      const mx = i === 0 ? FMAX.thumb : FMAX.f;
+      for (let j = 0; j < 3; j++) {
+        const g = c.segs[j];
+        g.b.quaternion.copy(g.rest).multiply(_fq.setFromAxisAngle(g.ax, fs.cur[i] * mx[j] * (j === 2 ? 0.9 + 0.1 * fs.cur[i] : 1)));
+        if (j === 0 && c.spAx) g.b.quaternion.multiply(_fq.setFromAxisAngle(c.spAx, fs.sp * (i === 4 ? 0.22 : 0.14) - 0.03));
+      }
+    }
+  }
+}
+
+// ───────── 쓰러지는 동작 ─────────
+// 맞고 젖혀짐 → 무릎이 꺾임 → 맞은 반대쪽으로 넘어짐 → 바닥에 닿아 살짝 튐. 무기는 손에서 떨어져 굴러감
+function startDeath(U) {
+  const push = U.lastPush && U.lastPush.lengthSq() > 1e-6 ? U.lastPush.clone().setY(0).normalize() : V(Math.sin(U.P.yaw), 0, Math.cos(U.P.yaw));
+  const face = V(-Math.sin(U.P.yaw), 0, -Math.cos(U.P.yaw));
+  const D = { t: 0, fall: push, fwd: push.dot(face) > -0.2, side: Math.random() < 0.5 ? -1 : 1, twist: (Math.random() - 0.5) * 0.8, y0: U.H.model.position.y, guns: [] };
+  for (const g of [U.H.gun, U.H.gun2]) if (g) D.guns.push({ o: g, v: push.clone().multiplyScalar(1.2 + Math.random()).add(V((Math.random() - 0.5) * 1.5, 1.6 + Math.random(), (Math.random() - 0.5) * 1.5)), w: V((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9), rest: false });
+  U.death = D;
+}
+function poseDeath(dt) {
+  const U = CUR, D = U.death, B = H.B, m = H.model; if (!D) return;
+  D.t += dt; const t = D.t;
+  for (const n in B) B[n].quaternion.copy(H.rest[n]);
+  const k1 = smooth(clamp(t / 0.16, 0, 1)) * (1 - smooth(clamp((t - 0.16) / 0.3, 0, 1)));   // 맞고 젖혀짐
+  const k2 = smooth(clamp((t - 0.1) / 0.42, 0, 1));                                           // 무릎 꺾임
+  const k3 = smoother(clamp((t - 0.38) / 0.55, 0, 1));                                         // 넘어짐
+  const land = t > 0.93 ? Math.sin((t - 0.93) * 16) * Math.exp(-(t - 0.93) * 7) : 0;          // 바닥에 닿아 튐
+  // 몸 전체: 넘어지는 방향으로 기울임 (+ 약간 비틀림)
+  const fall = D.fall, tilt = 1.42 * k3 - land * 0.05;
+  const ax = V().crossVectors(UP, fall).normalize();
+  const yaw = U.P.yaw + D.twist * k3;
+  m.quaternion.setFromAxisAngle(ax, tilt).multiply(new THREE.Quaternion().setFromAxisAngle(UP, yaw));
+  m.position.set(U.P.pos.x, U.P.pos.y, U.P.pos.z);
+  m.updateMatrixWorld(true);
+  const q = m.quaternion, rt = V(1, 0, 0).applyQuaternion(q), fw = V(0, 0, -1).applyQuaternion(q), up = V(0, 1, 0).applyQuaternion(q);
+  const fsg = D.fwd ? 1 : -1;
+  // 다리: 무릎이 앞으로 꺾이며 주저앉음
+  for (const [s, sg] of [['R', 1], ['L', -1]]) {
+    const knee = (D.fwd ? 1.1 * k2 * (1 - 0.45 * k3) : 0.6 * k2 * (1 - 0.9 * k3)) + (s === 'R' ? 0.18 : 0.02) * k3;
+    rotAxis(B['thigh_' + s], rt, knee);
+    rotAxis(B['thigh_' + s], fw, sg * 0.12 * k3);
+    rotAxis(B['shin_' + s], rt, -knee * 1.7);
+    if (B['foot_' + s]) rotAxis(B['foot_' + s], rt, 0.5 * k2);
+  }
+  // 상체: 맞을 때 뒤로 젖혀졌다가, 앞으로(또는 뒤로) 축 처짐
+  const slump = fsg * (-0.55 * k2 * (1 - 0.6 * k3)) + 0.35 * k1;
+  rotAxis(B.spine, rt, slump * 0.6); if (B.chest) rotAxis(B.chest, rt, slump * 0.5);
+  rotAxis(B.chest || B.spine, fw, D.side * 0.25 * k3);
+  rotAxis(B.head, rt, -0.45 * k2 * fsg + 0.5 * k1); rotAxis(B.head, fw, D.side * 0.6 * k3); rotAxis(B.head, up, D.side * 0.4 * k3);
+  // 팔: 힘이 빠져 흔들리며 벌어짐 → 바닥에 툭
+  const flail = Math.sin(t * 9) * Math.exp(-t * 3) * 0.5;
+  for (const [s, sg] of [['R', 1], ['L', -1]]) {
+    rotAxis(B['upperarm_' + s], fw, sg * (-0.45 * k2 + flail * 0.5 + 0.25 * k3 * (sg === D.side ? 1 : -0.3)));
+    rotAxis(B['upperarm_' + s], rt, (D.fwd ? -0.6 : 0.9) * k3 + 0.3 * k1);
+    rotAxis(B['forearm_' + s], rt, -0.5 * k2 - 0.25 * k3);
+  }
+  poseFingers(dt, { handW: 0 });
+  // 바닥에 닿게: 몸의 가장 낮은 점을 땅에 맞춤
+  m.updateMatrixWorld(true);
+  const gy = groundAt2(U.P.pos.x, U.P.pos.z, U.P.pos.y);
+  let low = Infinity;
+  for (const [n, pad] of [['head', 0.13], ['chest', 0.16], ['spine', 0.15], ['hips', 0.14], ['shin_R', 0.07], ['shin_L', 0.07], ['hand_R', 0.05], ['hand_L', 0.05], ['forearm_R', 0.06], ['forearm_L', 0.06], ['foot_R', 0.04], ['foot_L', 0.04]]) {
+    if (!B[n]) continue; low = Math.min(low, wpos(B[n]).y - pad);
+  }
+  if (low < Infinity) m.position.y += (gy - low) * smooth(clamp(k2 * 1.5, 0, 1));
+  // 3초 뒤 땅속으로 가라앉음
+  if (t > 3.2) m.position.y -= (t - 3.2) * 0.9;
+  m.visible = t < 4.0;
+  // 떨어진 무기
+  for (const g of D.guns) {
+    if (t < 0.12) continue;
+    if (!g.rest) {
+      g.v.y -= 18 * dt; g.o.position.addScaledVector(g.v, dt);
+      g.o.rotateX(g.w.x * dt); g.o.rotateY(g.w.y * dt); g.o.rotateZ(g.w.z * dt);
+      const gg = groundAt2(g.o.position.x, g.o.position.z, g.o.position.y + 0.5) + 0.06;
+      if (g.o.position.y < gg) {
+        g.o.position.y = gg;
+        if (g.v.y < -1.5) { g.v.y *= -0.32; g.v.x *= 0.6; g.v.z *= 0.6; g.w.multiplyScalar(0.5); }
+        else { g.v.set(0, 0, 0); g.rest = true; }
+      }
+    }
+    g.o.visible = t < 4.0;
+    if (t > 3.2) g.o.position.y -= dt * 0.5;
+  }
+}
+
 function poseHero(dt) {
   const B = H.B, C = H.C, m = H.model, t = performance.now() / 1000;
   const ap = actionPose();
   const mf = C.hold === 'melee' ? meleeFrame() : null;
   if (mf) { ap.lean += mf.ln; ap.crouch += mf.cr; ap.twist -= mf.tw; }
   for (const n in B) B[n].quaternion.copy(H.rest[n]);
+  H.rl = null;
   // ── 하체 방향: 움직일 땐 조준 방향을 따라가고, 서 있을 땐 많이 돌아야 발을 옮김
   const hv = V(P.vel.x, 0, P.vel.z), sp = hv.length();
   const diff = wrapA(P.yaw - A.lowerYaw);
@@ -524,6 +699,13 @@ function poseHero(dt) {
   const hl = A.headLag.step(bob * 3, dt);
   rotAxis(B.head, UP, -twist * 0.9);
   rotAxis(B.head, aimRight, P.pitch * 0.4 - hl * 0.6 + kick * 0.05);
+  // 맞았을 때 움찔: 맞은 방향으로 상체·머리가 젖혀졌다 돌아옴
+  if (CUR && CUR.flinchImp) { A.flinch.v.addScaledVector(CUR.flinchImp, 7); CUR.flinchImp = null; }
+  const fl = A.flinch.step(V(), dt);
+  if (fl.lengthSq() > 1e-6) {
+    const fa = V().crossVectors(UP, fl).normalize(), fm = Math.min(0.5, fl.length());
+    rotAxis(spine, fa, fm * 0.35); if (chest) rotAxis(chest, fa, fm * 0.45); rotAxis(B.head, fa, fm * 0.6);
+  }
   m.updateMatrixWorld(true);
   // ── 무기 위치
   const pivot = wpos(chest || spine).add(V(0, chest ? 0.08 : 0.25, 0));
@@ -550,7 +732,7 @@ function poseHero(dt) {
   gun.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(gun.position, aimPoint, UP));
   gun.rotateY(sw.x * 1.2 + rr.y * 0.05); gun.rotateX(sw.y * 1.0 + rr.x * 0.035); gun.rotateZ(-sw.x * 1.5 - A.leanS.x * 0.8);
   // 장전 자세
-  const rl = reloadPose(dt);
+  const rl = reloadPose(dt); H.rl = rl;
   if (rl.roll) { gun.rotateZ(rl.roll); gun.rotateX(rl.pitch); gun.position.add(rl.shift); }
   if (ap.gunDown) { gun.position.addScaledVector(UP, -0.2 * ap.gunDown).addScaledVector(aimFwd, 0.1 * ap.gunDown); gun.rotateX(-0.7 * ap.gunDown); gun.rotateZ(0.3 * ap.gunDown); }
   if (ap.gunW > 0) { // 내려찍기: 머리 위로 들었다가 내리침
@@ -600,9 +782,15 @@ function poseHero(dt) {
     }
     wristL.lerp(tg, ap.handW); dirL = dirL.clone().lerp(dr, ap.handW).normalize(); palmL = palmL.clone().lerp(pm, ap.handW).normalize();
   }
-  if (H.fp && !(ap.handW > 0)) { // 1인칭: 손이 앞 손잡이까지 안 닿으면 총을 따라 뒤로 미끄러뜨림
+  if (H.fp && !(ap.handW > 0) && !(rl && rl.hand)) { // 1인칭: 왼손은 총열 아래를 손바닥으로 받치고 손가락으로 감쌈. 안 닿으면 총열을 따라 뒤로
     const sL = wpos(B.upperarm_L), reach = (H.len.upperarm_L + H.len.forearm_L) * 0.97;
-    for (let i = 0; i < 12 && wristL.distanceTo(sL) > reach; i++) wristL.lerp(gun.position, 0.12);
+    const gl = wpos(H.gripL);
+    const hand = H.len.hand_L || 0.08;
+    const under = (k) => gl.clone().addScaledVector(gFwd, -k).addScaledVector(gUp, -0.035).addScaledVector(gRt, -hand * 0.45);
+    let k = 0; wristL = under(0);
+    for (let i = 0; i < 14 && wristL.distanceTo(sL) > reach; i++) { k += 0.03; wristL = under(k); }
+    dirL = gRt.clone().multiplyScalar(0.8).addScaledVector(gFwd, 0.45).addScaledVector(gUp, 0.15).normalize();
+    palmL = gUp.clone().addScaledVector(gRt, -0.25).normalize();
   }
   ik2('upperarm_L', 'forearm_L', wristL, aimRight.clone().multiplyScalar(-0.9).addScaledVector(UP, -1.1).addScaledVector(aimFwd, -0.2));
   aimBone('hand_L', dirL, palmL);
@@ -612,6 +800,7 @@ function poseHero(dt) {
   if (rl.shell) { shellMesh.position.copy(hp); shellMesh.quaternion.copy(gq); }
   if (rl.mag) { magMesh.position.copy(hp).addScaledVector(gUp, 0.04); magMesh.quaternion.copy(gq); }
   }
+  poseFingers(dt, ap);
   // ── 어깨 보호대(래칫): 팔을 조금만 따라감
   for (const s of 'RL') {
     const pad = B['pad_' + s]; if (!pad) continue;
@@ -1506,6 +1695,7 @@ function hurtDummy(d, dmg, crit, push) {
   if (d.drT > 0) m *= 0.6;
   if (d.H && d.H.C.heavy) m *= 0.95;
   dmg = Math.max(1, Math.round(dmg * m * DMG_MUL));
+  if (push && push.lengthSq() > 1e-8) { d.lastPush = push.clone(); d.flinchImp = (d.flinchImp || V()).add(push.clone().setY(0).normalize().multiplyScalar(Math.min(1.2, 0.25 + dmg / 35))); }
   let left = dmg;
   if (d.shield > 0) { const a = Math.min(d.shield, left); d.shield -= a; left -= a; }
   d.hp -= left;
@@ -1609,6 +1799,7 @@ function setHeroFor(U, id) {
   Hh.palms.hand_R = V(...C.palmR).applyQuaternion(wquat(B.hand_R).invert());
   Hh.palms.hand_L = V(...C.palmL).applyQuaternion(wquat(B.hand_L).invert());
   for (const s of 'RL') if (B['foot_' + s]) Hh.footRest[s] = wquat(B['foot_' + s]);
+  buildFingers(Hh);
   const gun = data.w.scene.clone(true); gun.scale.setScalar(C.gunScale);
   gun.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   Hh.gun = gun; Hh.muzzle = gun.getObjectByName('Muzzle'); Hh.gripL = gun.getObjectByName('Grip_L'); scene.add(gun);
@@ -1704,10 +1895,10 @@ function respawn(U) {
   const p = spawnPoint(U.team);
   U.P.pos.copy(p); U.P.vel.set(0, 0, 0); U.P.yaw = U.team === 'blue' ? 0 : Math.PI; U.P.pitch = 0;
   if (U.pendingHero) { setHeroFor(U, U.pendingHero); U.pendingHero = null; }
-  U.dead = false; U.hp = U.maxHp; U.shield = 0; U.respawnT = 0; U.deadT = 0; U.blind = 0;
+  U.dead = false; U.hp = U.maxHp; U.shield = 0; U.respawnT = 0; U.deadT = 0; U.blind = 0; U.death = null; U.lastPush = null;
   Object.assign(U.P, { mag: U.H.W.mag, cool: 0, reload: 0, swing: -1, spdT: 0, spdMul: 1, dmgT: 0, dmgMul: 1 });
   U.SK.act = null; U.A = newA(); U.A.lowerYaw = U.P.yaw;
-  U.H.model.visible = true; U.H.model.rotation.set(0, U.P.yaw, 0); U.H.gun.visible = true; if (U.H.gun2) U.H.gun2.visible = true;
+  U.H.model.visible = true; U.H.model.quaternion.identity(); U.H.model.rotation.set(0, U.P.yaw, 0); U.H.gun.visible = true; if (U.H.gun2) U.H.gun2.visible = true;
   if (U.bot) U.bot = newBrain(U);
   if (U.isPlayer) $('death').classList.add('hidden');
 }
@@ -2190,9 +2381,9 @@ function tick(dt) {
     if (U === PLAYER) { applyFP(U, fpWanted()); if (U.H.fp) fpEyeUpdate(U, dt); }
     if (U.dead) {
       U.deadT += dt; U.respawnT -= dt;
-      const m = U.H.model, k = Math.min(1, U.deadT * 2.5);
-      m.rotation.set(-k * 1.45, U.P.yaw, 0, 'YXZ'); m.position.y = U.P.pos.y - k * 0.1;
-      if (U.deadT > 2.2) m.visible = false;
+      if (!U.death) startDeath(U);
+      if (U.H.fp) applyFP(U, false);
+      poseDeath(dt);
       U.marker.visible = false;
       if (U.respawnT <= 0 && matchState !== 'end') respawn(U);
       unbind(U); continue;
@@ -2270,4 +2461,4 @@ setupPost();
 boot().catch((e) => { $('loadtxt').textContent = '불러오기 실패: ' + e; console.error(e); });
 frame();
 
-window.__game = { camera, scene, renderer, units, get player() { return PLAYER; }, point, score, startMatch, bind, unbind, useSkill, step(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { tick(dt); cityTick(dt, gameT); } render(); }, sim(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { tick(dt); cityTick(dt, gameT); } }, render, get state() { return matchState; }, set state(v) { matchState = v; }, opts };
+window.__game = { camera, scene, renderer, hurt: (u, d, push) => hurtDummy(u, d, false, push), units, get player() { return PLAYER; }, point, score, startMatch, bind, unbind, useSkill, step(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { tick(dt); cityTick(dt, gameT); } render(); }, sim(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { tick(dt); cityTick(dt, gameT); } }, render, get state() { return matchState; }, set state(v) { matchState = v; }, opts };
