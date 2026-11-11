@@ -151,7 +151,7 @@ const HEROES = {
     name: '아리아', sub: '정밀형 딜러 · 장궁', glb: 'assets/play/aria.glb', meta: 'assets/play/aria.json',
     gun: null, bow: true, gunScale: 1.0, speed: 5.6, wpn: 'bow', hold: 'bow',
     gunOff: [-0.12, 0.0, -0.56], twist: 0.95, palmR: [0, -1, 0], palmL: [0, -1, 0],
-    stanceW: 0.14, stride: 1.3, lift: 0.17, crouch: 0.06, cam: [0.95, 0.3, 3.1], heavy: 0, fp: [-0.2, -0.12, -0.5],
+    stanceW: 0.14, stride: 1.3, lift: 0.17, crouch: 0.06, cam: [0.95, 0.3, 3.1], heavy: 0, fp: [-0.1, -0.075, -0.64],
   },
 };
 const WPN = {
@@ -617,7 +617,7 @@ function updateBowGeo(g, k, nockLocal) {
 }
 function poseBow(dt, c) {
   const B = H.B, bow = H.gun, C = H.C;
-  const k = P.draw || 0, ke = smooth(Math.min(1, k * 1.15));
+  const k = P.draw || 0, ke = Math.max(smooth(Math.min(1, k * 1.15)), H.fp ? 0.2 : 0);   // 1인칭에선 쉴 때도 시위를 살짝 당겨 두 손이 겹치지 않게
   P.release = Math.max(0, (P.release || 0) - dt * 3.2);
   P.nockT = Math.max(0, (P.nockT || 0) - dt);
   const act = SK.act;
@@ -630,13 +630,14 @@ function poseBow(dt, c) {
   bow.position.copy(grip);
   const tgt = volley ? grip.clone().add(V(0, 0, -10).applyQuaternion(aq)) : aimPoint;
   bow.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(bow.position, tgt, UP));
-  bow.rotateZ(H.fp ? 0.32 : 0.18);   // 위쪽 끝을 바깥(왼쪽)으로 살짝 기울여 쥠
+  bow.rotateZ(H.fp ? 0.38 : 0.18);   // 위쪽 끝을 바깥(왼쪽)으로 살짝 기울여 쥠
   // 잡아당긴 손(오른손): 쉴 때는 시위 위, 당기면 턱 옆 앵커, 쏜 뒤엔 뒤로 튐
   bow.updateMatrixWorld(true);
   const restN = bow.localToWorld(V(0, 0.02, BOW.brace));
   const head = wpos(B.head);
-  const bq = bow.quaternion, bBack = V(0, 0, 1).applyQuaternion(bq), bUp = V(0, 1, 0).applyQuaternion(bq);
-  const anchor = H.fp ? H.fpEye.clone().addScaledVector(bBack, 0.03).addScaledVector(c.aimRight, 0.07).addScaledVector(UP, -0.09)
+  const bq = bow.quaternion, bBack = V(0, 0, 1).applyQuaternion(bq), bUp = V(0, 1, 0).applyQuaternion(bq), bFwd = bBack.clone().negate(), bRt = V(1, 0, 0).applyQuaternion(bq);
+  const camF = V(0, 0, -1).applyQuaternion(c.aimQ), camU = V(0, 1, 0).applyQuaternion(c.aimQ), camR = V(1, 0, 0).applyQuaternion(c.aimQ);
+  const anchor = H.fp ? H.fpEye.clone().addScaledVector(camF, 0.3).addScaledVector(camR, 0.11).addScaledVector(camU, -0.15)
     : head.clone().addScaledVector(c.aimRight, 0.07).addScaledVector(UP, -0.12).addScaledVector(c.aimFwd, 0.04);
   const drawn = restN.clone().lerp(anchor, ke);
   const rel = P.release || 0;
@@ -650,14 +651,16 @@ function poseBow(dt, c) {
   bow.userData.nockW = nockW;
   // 오른손: 손목은 시위 뒤, 손가락이 시위에 걸리게
   const wristR = handN.clone().addScaledVector(bBack, 0.075).addScaledVector(UP, -0.015).addScaledVector(c.aimRight, 0.012);
-  const dirR = bBack.clone().multiplyScalar(-1).addScaledVector(UP, 0.15).normalize();
-  const palmR = c.aimRight.clone().multiplyScalar(-1).addScaledVector(UP, -0.2).normalize();
+  const dirR = bFwd.clone().addScaledVector(bUp, 0.1).normalize();
+  const palmR = bRt.clone().negate().addScaledVector(bFwd, 0.1).normalize();
   ik2('upperarm_R', 'forearm_R', wristR, UP.clone().multiplyScalar(0.7 * ke + 0.2).addScaledVector(c.aimFwd, -1).addScaledVector(c.aimRight, 0.7));
   aimBone('hand_R', dirR, palmR);
   // 왼손: 손잡이를 감아쥠
-  const wristL = grip.clone().addScaledVector(bBack, 0.065).addScaledVector(bUp, -0.025).addScaledVector(c.aimRight, -0.012);
-  const dirL = c.aimFwd.clone().multiplyScalar(0.55).addScaledVector(c.aimRight, 0.75).addScaledVector(UP, 0.1).normalize();
-  const palmL = c.aimRight.clone().multiplyScalar(0.7).addScaledVector(c.aimFwd, 0.4).normalize();
+  // 활 쥔 손: 주먹을 세워 쥠 — 손가락 방향 = 쏘는 쪽, 손바닥 = 손잡이(오른쪽), 엄지 위. 손잡이가 주먹 안에 오게 손목을 뒤·왼쪽에
+  const handL = H.len.hand_L || 0.08;
+  const wristL = grip.clone().addScaledVector(bFwd, -handL * 0.62).addScaledVector(bRt, -0.03).addScaledVector(bUp, 0.005);
+  const dirL = bFwd.clone().addScaledVector(bRt, 0.15).normalize();
+  const palmL = bRt.clone().addScaledVector(bFwd, -0.15).normalize();
   if (act && act.type === 'grapple') { // 갈고리: 왼손으로 줄 끝 방향을 가리킴
     const sL = wpos(B.upperarm_L), dir = act.to.clone().sub(sL).normalize();
     ik2('upperarm_L', 'forearm_L', sL.clone().addScaledVector(dir, (H.len.upperarm_L + H.len.forearm_L) * 0.95), V(0, -1, 0));
@@ -2389,7 +2392,7 @@ function playerInput() {
 // ════════════ 카메라 ════════════
 // ───────── 1인칭 ─────────
 const VM_LAYER = 2;
-const FP_OFF = { bow: [-0.2, -0.12, -0.5], rifle: [0.17, -0.2, -0.42], dual: [0.2, -0.19, -0.44], melee: [0.1, 0.04, -0.16] };
+const FP_OFF = { bow: [-0.1, -0.075, -0.64], rifle: [0.17, -0.2, -0.42], dual: [0.2, -0.19, -0.44], melee: [0.1, 0.04, -0.16] };
 const vmCam = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.01, 20); vmCam.layers.set(VM_LAYER);
 const fpClip = new THREE.Plane();
 for (const l of [hemi, sun, rim, flashLight]) l.layers.enable(VM_LAYER);
