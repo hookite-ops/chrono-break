@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as skClone } from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { boxes, moveUnit, findPath, randomFreeNear, groundAt, los, startMap, finishMap, W as WORLD } from './world.js';
 import { MAPS, cityTick, buildSky } from './city.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -146,6 +147,12 @@ const HEROES = {
     stanceW: 0.12, stride: 1.3, lift: 0.17, crouch: 0.06, cam: [0.95, 0.25, 3.0], heavy: 0,
     wristR: [-0.075, 0.02, -0.02], wristL: [-0.07, -0.02, -0.04],
   },
+  aria: {
+    name: '아리아', sub: '정밀형 딜러 · 장궁', glb: 'assets/play/aria.glb', meta: 'assets/play/aria.json',
+    gun: null, bow: true, gunScale: 1.0, speed: 5.6, wpn: 'bow', hold: 'bow',
+    gunOff: [-0.12, 0.0, -0.56], twist: 0.95, palmR: [0, -1, 0], palmL: [0, -1, 0],
+    stanceW: 0.14, stride: 1.3, lift: 0.17, crouch: 0.06, cam: [0.95, 0.3, 3.1], heavy: 0, fp: [-0.2, -0.12, -0.5],
+  },
 };
 const WPN = {
   shotgun: { mag: 6, rate: 0.85, pellets: 10, spread: 0.075, dmg: 9, falloff: [8, 28], reload: 'shell', kick: 1, auto: false },
@@ -153,6 +160,7 @@ const WPN = {
   pistols: { mag: 40, rate: 0.085, pellets: 1, spread: 0.012, dmg: 7, falloff: [18, 40], reload: 'dual', kick: 0.2, auto: true },
   hammer: { mag: 0, rate: 0.9, melee: true, dmg: 75, range: 4.8, kick: 0, auto: true },
   launcher: { mag: 6, rate: 0.65, proj: 'grenade', speed: 21, g: 11, reload: 'mag', kick: 0.8, auto: false, spread: 0 },
+  bow: { mag: 0, rate: 0.28, proj: 'arrow', speed: 82, g: 6, reload: 'none', kick: 0.25, auto: false, spread: 0, bow: true, draw: 0.75 },
   staff: { mag: 30, rate: 0.36, proj: 'bolt', speed: 48, g: 0, reload: 'mag', kick: 0.25, auto: true, spread: 0.004, beam: true },
   medpistol: { mag: 12, rate: 0.32, pellets: 1, spread: 0.004, dmg: 25, falloff: [25, 45], reload: 'mag', kick: 0.4, auto: false, dart: true },
   nanorifle: { mag: 36, rate: 0.11, pellets: 1, spread: 0.008, dmg: 8, falloff: [20, 40], reload: 'mag', kick: 0.22, auto: true },
@@ -265,7 +273,7 @@ function ik2(upper, lower, target, pole) {
   aimBone(lower, A.clone().addScaledVector(dir, d).sub(wpos(H.B[lower])));
 }
 
-function startReload() { if (!H || H.W.melee || P.reload > 0 || P.mag >= H.W.mag) return; P.reload = 1; P.reloadT = 0; P.shell = 0; }
+function startReload() { if (!H || H.W.melee || H.W.bow || P.reload > 0 || P.mag >= H.W.mag) return; P.reload = 1; P.reloadT = 0; P.shell = 0; }
 
 // ───────── 효과 ─────────
 const fx = [];
@@ -445,6 +453,7 @@ const HP = {   // [엄지, 검지, 중지, 약지, 새끼] 굽힘 0~1, sp = 벌�
   claw: { c: [0.35, 0.4, 0.42, 0.46, 0.5], sp: 0.9 },
   pinch: { c: [0.6, 0.55, 0.8, 0.88, 0.92], sp: 0 },     // 탄 집기
   limp: { c: [0.3, 0.35, 0.42, 0.5, 0.55], sp: 0.35 },
+  draw: { c: [0.72, 0.38, 0.44, 0.5, 0.88], sp: 0.05 },  // 활 시위: 검지·중지·약지 첫 마디로 걸고 엄지·새끼는 접음
 };
 const _fq = new THREE.Quaternion();
 function buildFingers(Hh) {
@@ -453,10 +462,11 @@ function buildFingers(Hh) {
   Hh.fing = {};
   const TF = Hh.meta.fingers || {};
   for (const s of 'RL') {
-    if (!B['index_01_' + s] || !B['middle_01_' + s] || !B['pinky_01_' + s]) continue;
+    const outer = B['pinky_01_' + s] ? 'pinky' : B['ring_01_' + s] ? 'ring' : null;   // 새끼 뼈가 없는 리그도 있음
+    if (!B['index_01_' + s] || !outer) continue;
     const mcp = (f) => wpos(B[f + '_01_' + s]);
-    const a = mcp('middle').sub(wpos(B['hand_' + s])).normalize();
-    const lat = mcp('index').sub(mcp('pinky')).normalize();
+    const a = mcp(B['middle_01_' + s] ? 'middle' : 'index').sub(wpos(B['hand_' + s])).normalize();
+    const lat = mcp('index').sub(mcp(outer)).normalize();
     const pn = V().crossVectors(a, lat).normalize();
     // 손바닥 쪽 정하기: 쉬는 자세에서 손가락 끝이 살짝 굽은 쪽 = 손바닥 (거의 펴져 있으면 설정값 따름)
     let vote = 0;
@@ -480,7 +490,7 @@ function buildFingers(Hh) {
         return { b, ax: k.normalize().applyQuaternion(wquat(b).invert()), rest: Hh.rest[b.name] };
       });
       let spAx = null;
-      if (f === 'index' || f === 'ring' || f === 'pinky') {
+      if ((f === 'index' || f === 'ring' || f === 'pinky') && B['middle_01_' + s]) {
         const lt = pts[0].clone().sub(mcp('middle')); lt.addScaledVector(a, -lt.dot(a)).normalize();
         const d = pts[1].clone().sub(pts[0]).normalize();
         spAx = V().crossVectors(d, lt).normalize().applyQuaternion(wquat(bs[0]).invert());
@@ -493,8 +503,14 @@ function buildFingers(Hh) {
 function mixHP(a, b, k) { return { c: a.c.map((v, i) => v + (b.c[i] - v) * k), sp: a.sp + (b.sp - a.sp) * k }; }
 function handTarget(s, ap) {
   const C = H.C, W = H.W, rl = H.rl;
+  if (window.__fingForce !== undefined) { const f = window.__fingForce; return { c: [f, f, f, f, f], sp: 0 }; }
   if (CUR && CUR.dead) return HP.limp;
   if (C.hold === 'melee') return HP.fist;
+  if (C.hold === 'bow') {
+    if (s === 'L') return HP.fist;
+    const rel = P.release || 0;
+    return rel > 0 ? mixHP(HP.draw, HP.open, Math.min(1, rel * 2.2)) : (SK.act && SK.act.type === 'grapple' ? HP.relax : HP.draw);
+  }
   const trig = (P.trig || 0);
   const gripT = (k) => ({ c: [HP.grip.c[0], HP.grip.c[1] + 0.32 * k, ...HP.grip.c.slice(2)], sp: 0 });
   if (s === 'R') return W && (W.melee || W.proj === 'bolt' || W.beam) ? HP.hold : gripT(C.hold === 'dual' ? (P.alt ? 0 : trig) : trig);
@@ -527,6 +543,158 @@ function poseFingers(dt, ap) {
       }
     }
   }
+}
+
+// ───────── 활 (아리아) ─────────
+// 활대를 코드로 만들어 당길수록 휘게 함. 로컬: 위 = +Y, 쏘는 방향 = -Z, 사수 쪽 = +Z. 원점 = 손잡이
+const BOW = { L: 0.64, SEG: 20, RING: 7, brace: 0.17 };
+const bowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.25 });
+const stringMat = new THREE.MeshStandardMaterial({ color: 0xb8aa88, roughness: 0.8 });
+const arrowGeo = (() => {
+  const parts = [];
+  const shaft = new THREE.CylinderGeometry(0.0055, 0.0055, 0.74, 6); shaft.rotateX(Math.PI / 2); parts.push([shaft, 0x6b4a2e]);
+  const head = new THREE.ConeGeometry(0.014, 0.07, 6); head.rotateX(Math.PI / 2); head.translate(0, 0, 0.4); parts.push([head, 0xc9a24a]);
+  for (let i = 0; i < 3; i++) { const f = new THREE.PlaneGeometry(0.03, 0.1); f.translate(0.016, 0, -0.31); f.rotateZ(i * Math.PI * 2 / 3); parts.push([f, i ? 0xe8e2d6 : 0xd8402a]); }
+  const geos = parts.map(([g, c]) => { g = g.toNonIndexed(); const col = new THREE.Color(c), n = g.attributes.position.count, a = new Float32Array(n * 3); for (let i = 0; i < n; i++) col.toArray(a, i * 3); g.setAttribute('color', new THREE.BufferAttribute(a, 3)); g.deleteAttribute('uv'); return g; });
+  return mergeGeometries(geos);
+})();
+const arrowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide });
+function bowCurve(t, k, sign) {
+  // t: 0(손잡이) ~ 1(끝). 쉬는 활: 뒤로 휘고 끝은 앞으로 젖혀짐(리커브). k = 당김
+  const y = BOW.L * t * (1 - 0.06 * k * t * t);
+  const z = 0.21 * Math.pow(t, 1.6) - 0.06 * smooth(clamp((t - 0.72) / 0.28, 0, 1)) + k * 0.13 * Math.pow(t, 1.9);
+  return V(0, y * sign, z);
+}
+function makeBow() {
+  const g = new THREE.Group();
+  const S = BOW.SEG, Rn = BOW.RING, nRows = S * 2 + 1;
+  const pos = new Float32Array(nRows * Rn * 3), col = new Float32Array(nRows * Rn * 3), idx = [];
+  for (let r = 0; r < nRows; r++) {
+    const t = Math.abs(r - S) / S;
+    const c = t < 0.09 ? new THREE.Color(0x2e1d14) : (t > 0.12 && t < 0.15) || t > 0.95 ? new THREE.Color(0xc9a24a) : new THREE.Color(0x6e2a1c).lerp(new THREE.Color(0x3a1810), t * 0.6);
+    for (let i = 0; i < Rn; i++) c.toArray(col, (r * Rn + i) * 3);
+    if (r < nRows - 1) for (let i = 0; i < Rn; i++) { const a = r * Rn + i, b = r * Rn + (i + 1) % Rn, c2 = (r + 1) * Rn + i, d = (r + 1) * Rn + (i + 1) % Rn; idx.push(a, c2, b, b, c2, d); }
+  }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.setIndex(idx);
+  const limb = new THREE.Mesh(geo, bowMat); limb.castShadow = true; limb.frustumCulled = false; g.add(limb);
+  const sGeo = new THREE.CylinderGeometry(0.0014, 0.0014, 1, 4); sGeo.translate(0, 0.5, 0);
+  const s1 = new THREE.Mesh(sGeo, stringMat), s2 = new THREE.Mesh(sGeo, stringMat); s1.frustumCulled = s2.frustumCulled = false; g.add(s1, s2);
+  const arrow = new THREE.Mesh(arrowGeo, arrowMat); arrow.castShadow = true; g.add(arrow);
+  const mz = new THREE.Object3D(); mz.name = 'Muzzle'; mz.position.set(-0.02, 0.03, -0.05); g.add(mz);
+  g.userData.bow = { limb, s1, s2, arrow, k: -1 };
+  updateBowGeo(g, 0, null);
+  return g;
+}
+const _bv = new THREE.Vector3(), _bq = new THREE.Quaternion();
+function updateBowGeo(g, k, nockLocal) {
+  const B0 = g.userData.bow; if (!B0) return;
+  const S = BOW.SEG, Rn = BOW.RING, pos = B0.limb.geometry.attributes.position;
+  if (Math.abs(B0.k - k) > 0.004) {
+    B0.k = k;
+    for (let r = 0; r <= S * 2; r++) {
+      const sg = r < S ? -1 : 1, t = Math.abs(r - S) / S;
+      const c = bowCurve(t, k, sg), c2 = bowCurve(Math.min(1, t + 0.02), k, sg);
+      const tan = c2.sub(c).normalize(); if (t >= 0.999) tan.copy(bowCurve(1, k, sg).sub(bowCurve(0.98, k, sg)).normalize());
+      const rad = t < 0.12 ? 0.022 - t * 0.03 : 0.0185 - 0.011 * t;
+      const n1 = V(1, 0, 0), n2 = V().crossVectors(tan, n1).normalize();
+      for (let i = 0; i < Rn; i++) {
+        const a = i / Rn * Math.PI * 2, w = t < 0.12 ? 1.25 : 1.6;   // 림은 납작하게
+        pos.setXYZ(r * Rn + i, c.x + n1.x * Math.cos(a) * rad * w + n2.x * Math.sin(a) * rad, c.y + n1.y * Math.cos(a) * rad * w + n2.y * Math.sin(a) * rad, c.z + n1.z * Math.cos(a) * rad * w + n2.z * Math.sin(a) * rad);
+      }
+    }
+    pos.needsUpdate = true; B0.limb.geometry.computeVertexNormals();
+  }
+  // 시위: 위 끝 → 화살 오늬(당기는 손) → 아래 끝
+  const tT = bowCurve(1, k, 1), tB = bowCurve(1, k, -1);
+  const nock = nockLocal || V(0, (tT.y + tB.y) / 2, tT.z);
+  const seg = (m, a, b) => { _bv.copy(b).sub(a); m.position.copy(a); m.scale.set(1, _bv.length(), 1); m.quaternion.setFromUnitVectors(UP, _bv.normalize()); };
+  seg(B0.s1, tT, nock); seg(B0.s2, tB, nock);
+  // 걸린 화살: 오늬에서 손잡이 옆 화살받침 쪽으로
+  const rest = V(-0.018, 0.03, 0);
+  B0.arrow.visible = !!B0.showArrow;
+  if (B0.showArrow) { const d = rest.clone().sub(nock).normalize(); B0.arrow.position.copy(nock).addScaledVector(d, 0.37); B0.arrow.quaternion.setFromUnitVectors(V(0, 0, 1), d); }
+  B0.nock = nock;
+}
+function poseBow(dt, c) {
+  const B = H.B, bow = H.gun, C = H.C;
+  const k = P.draw || 0, ke = smooth(Math.min(1, k * 1.15));
+  P.release = Math.max(0, (P.release || 0) - dt * 3.2);
+  P.nockT = Math.max(0, (P.nockT || 0) - dt);
+  const act = SK.act;
+  const volley = act && act.type === 'volley' ? smooth(Math.min(1, act.t / 0.25)) * (act.t > 0.55 ? Math.max(0, 1 - (act.t - 0.55) / 0.3) : 1) : 0;
+  // 활 위치: 왼팔을 쭉 뻗은 앞. 화살비 때는 하늘로
+  const aq = c.aimQ.clone();
+  if (volley) aq.multiply(new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), 0.9 * volley));
+  const go = C.gunOff;
+  const grip = c.pivot.clone().add(V(go[0] + c.sw.x * 0.4, go[1] + c.sw.y * 0.4 - 0.02 * (1 - ke), go[2] * (0.88 + 0.12 * ke)).add(c.stepBob).applyQuaternion(aq));
+  bow.position.copy(grip);
+  const tgt = volley ? grip.clone().add(V(0, 0, -10).applyQuaternion(aq)) : aimPoint;
+  bow.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(bow.position, tgt, UP));
+  bow.rotateZ(H.fp ? 0.32 : 0.18);   // 위쪽 끝을 바깥(왼쪽)으로 살짝 기울여 쥠
+  // 잡아당긴 손(오른손): 쉴 때는 시위 위, 당기면 턱 옆 앵커, 쏜 뒤엔 뒤로 튐
+  bow.updateMatrixWorld(true);
+  const restN = bow.localToWorld(V(0, 0.02, BOW.brace));
+  const head = wpos(B.head);
+  const bq = bow.quaternion, bBack = V(0, 0, 1).applyQuaternion(bq), bUp = V(0, 1, 0).applyQuaternion(bq);
+  const anchor = H.fp ? H.fpEye.clone().addScaledVector(bBack, 0.03).addScaledVector(c.aimRight, 0.07).addScaledVector(UP, -0.09)
+    : head.clone().addScaledVector(c.aimRight, 0.07).addScaledVector(UP, -0.12).addScaledVector(c.aimFwd, 0.04);
+  const drawn = restN.clone().lerp(anchor, ke);
+  const rel = P.release || 0;
+  const follow = drawn.clone().addScaledVector(bBack, 0.12 * Math.sin(Math.min(1, rel) * Math.PI) * (rel > 0 ? 1 : 0)).addScaledVector(c.aimRight, 0.05 * rel);
+  const handN = rel > 0 ? follow : drawn;
+  // 시위는 손을 따라가되, 쏜 뒤엔 바로 제자리로
+  const nockW = rel > 0 ? restN : (k > 0 ? drawn : restN);
+  updateBowGeo(bow, rel > 0 ? 0 : ke, bow.worldToLocal(nockW.clone()));
+  bow.userData.bow.showArrow = P.nockT <= 0 && !(act && (act.type === 'grapple'));
+  updateBowGeo(bow, rel > 0 ? 0 : ke, bow.worldToLocal(nockW.clone()));
+  bow.userData.nockW = nockW;
+  // 오른손: 손목은 시위 뒤, 손가락이 시위에 걸리게
+  const wristR = handN.clone().addScaledVector(bBack, 0.075).addScaledVector(UP, -0.015).addScaledVector(c.aimRight, 0.012);
+  const dirR = bBack.clone().multiplyScalar(-1).addScaledVector(UP, 0.15).normalize();
+  const palmR = c.aimRight.clone().multiplyScalar(-1).addScaledVector(UP, -0.2).normalize();
+  ik2('upperarm_R', 'forearm_R', wristR, UP.clone().multiplyScalar(0.7 * ke + 0.2).addScaledVector(c.aimFwd, -1).addScaledVector(c.aimRight, 0.7));
+  aimBone('hand_R', dirR, palmR);
+  // 왼손: 손잡이를 감아쥠
+  const wristL = grip.clone().addScaledVector(bBack, 0.065).addScaledVector(bUp, -0.025).addScaledVector(c.aimRight, -0.012);
+  const dirL = c.aimFwd.clone().multiplyScalar(0.55).addScaledVector(c.aimRight, 0.75).addScaledVector(UP, 0.1).normalize();
+  const palmL = c.aimRight.clone().multiplyScalar(0.7).addScaledVector(c.aimFwd, 0.4).normalize();
+  if (act && act.type === 'grapple') { // 갈고리: 왼손으로 줄 끝 방향을 가리킴
+    const sL = wpos(B.upperarm_L), dir = act.to.clone().sub(sL).normalize();
+    ik2('upperarm_L', 'forearm_L', sL.clone().addScaledVector(dir, (H.len.upperarm_L + H.len.forearm_L) * 0.95), V(0, -1, 0));
+    aimBone('hand_L', dir, c.aimRight);
+  } else {
+    ik2('upperarm_L', 'forearm_L', wristL, c.aimRight.clone().multiplyScalar(-1).addScaledVector(UP, -0.7));
+    aimBone('hand_L', dirL, palmL);
+  }
+}
+function bowStep(inp, dt) {
+  const W = H.W;
+  const can = !CUR.dead && !(SK.act && SK.act.noFire) && P.cool <= 0 && !(CUR.blind > 0 && !CUR.isPlayer);
+  if (inp.fire && can) {
+    if (!(P.draw > 0)) { P.draw = 0.001; ssfx('creak'); CUR.drawTo = CUR.bot ? rand(0.8, 1) : 1; }
+    P.draw = Math.min(1, P.draw + dt / W.draw);
+    if (CUR.bot && P.draw >= CUR.drawTo && CUR.bot.aligned !== false) releaseArrow();
+  } else if (P.draw > 0) {
+    if (P.draw > 0.12) releaseArrow(); else P.draw = 0;
+  }
+  SK.fovAdd = Math.min(SK.fovAdd, 0) - (P.draw || 0) * 6 * (CUR.isPlayer ? 1 : 0);  // 당기면 살짝 확대
+}
+function releaseArrow() {
+  const W = H.W, k = P.draw; P.draw = 0; P.cool = W.rate; P.shots++; P.release = 1; P.nockT = 0.32;
+  const from = H.gun.userData.nockW ? H.gun.userData.nockW.clone() : wpos(H.muzzle);
+  const spd = lerp(38, W.speed, k), dmg = Math.round(lerp(30, 115, k));
+  const target = aimPoint.clone();
+  const dir = target.clone().sub(from).normalize();
+  const g = W.g * (1.4 - 0.6 * k);
+  const dist = target.distanceTo(from); dir.y += Math.min(0.3, g * dist / (2 * spd * spd)); dir.normalize();
+  spawnProj('arrow', from.clone().addScaledVector(dir, 0.35), dir.multiplyScalar(spd), { g, dmg, life: 3 });
+  ssfx('twang');
+  recoilRot.v.x += 4 * k; P.camKick += 0.012;
+}
+const reveals = [];
+function grappleRope() {
+  if (!SK.rope) { SK.rope = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 1, 5).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: 0x9a8a6a, roughness: 0.9 })); SK.rope.frustumCulled = false; scene.add(SK.rope); }
+  return SK.rope;
 }
 
 // ───────── 쓰러지는 동작 ─────────
@@ -721,7 +889,10 @@ function poseHero(dt) {
   const aimQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(P.pitch, P.yaw, 0, 'YXZ'));
   const go = C.gunOff;
   const stepBob = V(Math.sin(A.phase) * 0.012 * A.gait, Math.abs(Math.cos(A.phase)) * 0.018 * A.gait - airT * 0.04 + landC * 0.4, 0);
-  if (C.hold === 'dual' || C.hold === 'melee') {
+  if (C.hold === 'bow') {
+    shellMesh.visible = magMesh.visible = false;
+    poseBow(dt, { pivot, aimQ, aimRight, aimFwd, sw, stepBob, ap });
+  } else if (C.hold === 'dual' || C.hold === 'melee') {
     shellMesh.visible = magMesh.visible = false;
     if (C.hold === 'dual') poseDual(dt, { pivot, aimQ, aimRight, aimFwd, sw, stepBob, ap });
     else poseMelee(dt, { pivot, aimRight, aimFwd, sw, stepBob }, mf);
@@ -1019,7 +1190,8 @@ const PM = {
 };
 const glowTex = radTex([[0, 'rgba(255,255,230,1)'], [0.35, 'rgba(255,210,120,.7)'], [1, 'rgba(255,180,80,0)']]);
 function spawnProj(kind, pos, vel, opt = {}) {
-  const m = new THREE.Mesh(PG[kind], PM[kind]); m.position.copy(pos); m.castShadow = true; scene.add(m);
+  const m = (kind === 'arrow' || kind === 'scout' || kind === 'hook') ? new THREE.Mesh(arrowGeo, arrowMat) : new THREE.Mesh(PG[kind], PM[kind]);
+  if (kind === 'arrow' || kind === 'scout' || kind === 'hook') m.lookAt(pos.clone().add(vel)); m.position.copy(pos); m.castShadow = true; scene.add(m);
   if (kind === 'bolt') { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); s.scale.setScalar(0.5); m.add(s); }
   const p = Object.assign({ owner: CUR, kind, m, vel: vel.clone(), g: 0, life: 4, t: 0, stuck: null, fuse: 0 }, opt);
   projs.push(p); return p;
@@ -1039,6 +1211,7 @@ function explode(pos, r, dmg, color = 0xff8a3a, big = 1) {
 function updateProjs(dt) {
   for (let i = projs.length - 1; i >= 0; i--) {
     const p = projs[i]; if (p.owner !== CUR) continue; p.t += dt;
+    if (p.stuckW) { if (p.t > p.life) { scene.remove(p.m); projs.splice(i, 1); } continue; }   // 벽에 박힌 화살
     if (p.stuck) { // 붙은 점착 폭탄
       if (p.stuck.d) p.m.position.copy(dummyPos(p.stuck.d)).add(p.stuck.off);
       p.m.material = (Math.floor(p.t * (p.t > p.fuse - 0.4 ? 16 : 6)) % 2) ? PM.bomb : PM.flash;
@@ -1051,11 +1224,26 @@ function updateProjs(dt) {
     let hit = h.kind && h.t <= len + 0.05;
     if (hit) p.m.position.copy(h.p); else p.m.position.add(step);
     if (p.kind === 'bolt' && Math.random() < 0.5) sparks(p.m.position, 1, null, 0xffe0a0);
-    if (p.kind === 'shell') p.m.lookAt(p.m.position.clone().add(p.vel));
+    if (p.kind === 'shell' || p.kind === 'arrow' || p.kind === 'scout') p.m.lookAt(p.m.position.clone().add(p.vel));
+    if ((p.kind === 'arrow' || p.kind === 'scout') && Math.random() < 0.6) sparks(p.m.position, 1, null, p.kind === 'scout' ? 0x7fdcff : 0xffe0b0);
     if (hit || p.t > p.life) {
       const at = p.m.position.clone();
       if (p.kind === 'grenade') explode(at, 3, 80);
       else if (p.kind === 'shell') explode(at, 4, 110, 0xff7a2f, 1.6);
+      else if (p.kind === 'arrow' || p.kind === 'scout') {
+        if (hit && h.kind === 'dummy' && p.kind === 'arrow') {
+          const dmg = Math.round(p.dmg * P.dmgMul * (h.crit ? 2 : 1));
+          hurtDummy(h.d, dmg, h.crit, p.vel.clone().setY(0).normalize().multiplyScalar(0.9)); hitMark(h.crit); P.hits++;
+          if (h.crit && H.id === 'aria') SK.cd.ab1 = Math.max(0, SK.cd.ab1 - 1);   // 헤드샷이면 갈고리 쿨 감소
+          sparks(at, 5, null, 0xffd0a0);
+        } else if (hit) {   // 벽·바닥에 박힘
+          p.stuckW = true; p.t = 0; p.life = p.kind === 'scout' ? 6 : 4; p.m.position.copy(at).addScaledVector(p.vel.clone().normalize(), 0.18);
+          sparks(at, 3, null, 0xc8b090); sfx('click', 700);
+          if (p.kind === 'scout') { reveals.push({ at: at.clone(), t: 0, life: 6, team: CUR.team, owner: CUR }); ring(at, 0x7fdcff, 0.3, 12, 0.8); ssfx('shieldOn'); }
+          continue;
+        }
+        if (p.kind === 'scout' && !hit) { reveals.push({ at: at.clone(), t: 0, life: 6, team: CUR.team, owner: CUR }); ring(at, 0x7fdcff, 0.3, 12, 0.8); }
+      }
       else if (p.kind === 'bolt') {
         if (h.kind === 'dummy') { hurtDummy(h.d, Math.round(30 * P.dmgMul * (h.crit ? 2 : 1)), h.crit, p.vel.clone().setY(0).normalize().multiplyScalar(0.6)); hitMark(h.crit); P.hits++; }
         sparks(at, 6, null, 0xffe0a0);
@@ -1110,6 +1298,47 @@ function nanoCloud() {
   }
   zones.push({ owner: CUR, g, t: 0, life: 5, kind: 'nano', follow: true });
 }
+// 화살비 구역: 3초 동안 하늘에서 화살이 쏟아지고 안에 있는 적이 계속 맞음
+const rainStreak = new THREE.PlaneGeometry(0.05, 1.8).rotateX(Math.PI / 2);
+const rainStreakMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 1.2, 0.7), transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+function makeRain(at) {
+  const g = new THREE.Group(); g.position.copy(at);
+  const ringM = new THREE.Mesh(new THREE.RingGeometry(5.6, 6, 56).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: CUR.team === 'blue' ? 0x6fc8ff : 0xff6070, transparent: true, opacity: 0.0, depthWrite: false }));
+  ringM.position.y = 0.05; g.add(ringM); scene.add(g);
+  return { owner: CUR, g, t: 0, life: 3.6, kind: 'rain', r: 6, falling: [], tick: 0 };
+}
+function updateRain(z, dt, fade) {
+  z.g.children[0].material.opacity = 0.7 * fade;
+  if (z.t < 0.5) return;   // 하늘로 쏜 화살이 떨어지기까지
+  if (z.t < z.life - 0.3) for (let n = 0; n < 2; n++) {
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * z.r;
+    const m = new THREE.Mesh(arrowGeo, arrowMat); m.scale.setScalar(1.3);
+    const st = new THREE.Mesh(rainStreak, rainStreakMat); st.position.z = -1.1; m.add(st);
+    const p = z.g.position.clone().add(V(Math.cos(a) * r + 2.5, 16 + Math.random() * 4, Math.sin(a) * r + 1.5));
+    const tgt = z.g.position.clone().add(V(Math.cos(a) * r, 0, Math.sin(a) * r)); tgt.y = groundAt2(tgt.x, tgt.z, z.g.position.y + 2);
+    m.position.copy(p); m.lookAt(tgt); scene.add(m);
+    z.falling.push({ m, v: tgt.clone().sub(p).normalize().multiplyScalar(42), tgt, stuck: 0 });
+  }
+  for (let i = z.falling.length - 1; i >= 0; i--) {
+    const f = z.falling[i];
+    if (f.stuck > 0) { f.stuck += dt; if (f.m.children[0]) f.m.children[0].visible = false; if (f.stuck > 1.2) { scene.remove(f.m); z.falling.splice(i, 1); } continue; }
+    f.m.position.addScaledVector(f.v, dt);
+    if (f.m.position.y <= f.tgt.y + 0.25) { f.m.position.y = f.tgt.y + 0.25; f.stuck = 0.001; if (Math.random() < 0.3) dust(f.m.position, 1, 0.2, 0.5); }
+  }
+  z.tick -= dt;
+  if (z.tick <= 0 && z.t < z.life - 0.2) { z.tick = 0.25; for (const d of dummies) if (!d.dead && dummyPos(d).distanceTo(z.g.position) < z.r && Math.abs(dummyPos(d).y - z.g.position.y) < 4) { hurtDummy(d, Math.round(19 * P.dmgMul), false, V(0, 0, 0)); if (CUR.isPlayer) hitMark(false); } if (Math.random() < 0.5) sfx('click', 500 + Math.random() * 300); }
+}
+function updateReveals(dt) {
+  for (let i = reveals.length - 1; i >= 0; i--) {
+    const r = reveals[i]; r.t += dt;
+    for (const u of units) if (u.team !== r.team && !u.dead && u.P.pos.distanceTo(r.at) < 12) { u.revealT = 0.25; u.revealBy = r.team; }
+    if (r.t > r.life) reveals.splice(i, 1);
+  }
+  for (const u of units) {
+    if (u.revealT > 0) u.revealT -= dt;
+    u.revealOn = u.revealT > 0 && PLAYER && u.revealBy === PLAYER.team;
+  }
+}
 function updateZones(dt) {
   for (let i = zones.length - 1; i >= 0; i--) {
     const z = zones[i]; if (z.owner !== CUR) continue; z.t += dt;
@@ -1118,13 +1347,14 @@ function updateZones(dt) {
       for (const a of allies) if (!a.dead && a.P.pos.distanceTo(z.g.position) < z.r + 0.4) heal(a, 45 * dt);
       z.g.children[1].material.opacity = 0.9 * fade; z.g.children[0].material.opacity = 0.18 * fade;
       if (Math.random() < dt * 25) { const a = Math.random() * 6.28, r = Math.random() * 2.8; const e = new THREE.Mesh(sparkGeo, new THREE.MeshBasicMaterial({ color: 0xfff0a0 })); e.position.copy(z.g.position).add(V(Math.cos(a) * r, 0.05, Math.sin(a) * r)); scene.add(e); fx.push({ o: e, t: 0, life: 1.0, kind: 'ember', v: V(0, 1.2, 0) }); }
+    } else if (z.kind === 'rain') { updateRain(z, dt, fade);
     } else if (z.kind === 'crate') { updateCrate(z, dt); if (z.t > z.life - 0.5) z.g.scale.setScalar(Math.max(0.01, (z.life - z.t) / 0.5));
     } else if (z.kind === 'nano') {
       z.g.position.copy(P.pos);
       for (const a of allies) if (!a.dead && a.P.pos.distanceTo(P.pos) < 4.5) { heal(a, 55 * dt); a.protectT = 0.2; }
       for (const s of z.g.children) { const u = s.userData; u.a += dt * u.sp; s.position.set(Math.cos(u.a) * u.r, u.y + Math.sin(z.t * 2 + u.a) * 0.15, Math.sin(u.a) * u.r); s.material.opacity = 0.5 * fade; }
     }
-    if (z.t > z.life) { scene.remove(z.g); zones.splice(i, 1); }
+    if (z.t > z.life) { scene.remove(z.g); if (z.falling) for (const f of z.falling) scene.remove(f.m); zones.splice(i, 1); }
   }
 }
 // 보급 상자 (모라 궁극기)
@@ -1180,6 +1410,7 @@ const ABIL = {
   orbit: { ab1: { name: '이동형 방벽', cd: 1.2, toggle: true }, ab2: { name: '반발 펄스', cd: 8 }, ult: { name: '방벽 돔', cost: 1500 } },
   tick: { ab1: { name: '순간이동', cd: 3.5, charges: 2 }, ab2: { name: '홀로그램 분신', cd: 9 }, ult: { name: '추적 드론', cost: 1200 } },
   phase: { ab1: { name: '폭발 도약', cd: 8 }, ab2: { name: '점착 폭탄', cd: 7 }, ult: { name: '박격포 포격', cost: 1400 } },
+  aria: { ab1: { name: '갈고리 화살', cd: 7 }, ab2: { name: '정찰 화살', cd: 11 }, ult: { name: '화살비', cost: 1300 } },
   lumen: { ab1: { name: '가속 보호막', cd: 12 }, ab2: { name: '치유 장판', cd: 14 }, ult: { name: '빛의 고리', cost: 1400 } },
   mora: { ab1: { name: '가속 장치', cd: 12 }, ab2: { name: '섬광 수류탄', cd: 11 }, ult: { name: '전술 보급', cost: 1300 } },
   iko: { ab1: { name: '방패 드론', cd: 10 }, ab2: { name: '정화', cd: 12 }, ult: { name: '나노 구름', cost: 1400 } },
@@ -1273,6 +1504,8 @@ function aoe(center, r, dmg, push, up = 1.5) {
   return n;
 }
 const SKSFX = {
+  creak() { const t = AC.currentTime; burst(t, 0.5, 420, 3, 0.12, 'bandpass'); tone(t, 140, 190, 0.5, 0.05, 'sawtooth'); },
+  twang() { const t = AC.currentTime; tone(t, 210, 120, 0.25, 0.4, 'triangle'); tone(t, 420, 300, 0.12, 0.15); burst(t, 0.08, 2600, 1.5, 0.35, 'bandpass'); burst(t + 0.02, 0.25, 900, 0.8, 0.15, 'bandpass'); },
   whoosh() { const t = AC.currentTime; burst(t, 0.5, 900, 0.7, 0.6, 'bandpass'); tone(t, 180, 90, 0.4, 0.3, 'sawtooth'); },
   boom() { const t = AC.currentTime; tone(t, 90, 28, 0.6, 1.3); burst(t, 0.7, 700, 0.6, 1.1); burst(t, 0.15, 4000, 1, 0.5, 'highpass'); },
   shieldOn() { const t = AC.currentTime; tone(t, 300, 900, 0.25, 0.25, 'triangle'); tone(t + 0.05, 600, 1500, 0.2, 0.15); },
@@ -1330,6 +1563,23 @@ function useSkill(slot) {
       SK.act = { type: 'slam', t: 0, phase: 'rise', lock: true, noFire: true }; ssfx('whoosh');
     }
     if (slot === 'ult') { SK.act = { type: 'ram', t: 0, dur: 3.2, hit: new Map(), lock: true, noFire: true }; ssfx('ult'); SK.glow = 1; }
+  } else if (id === 'aria') {
+    const eye = eyeOf(), dir = aimPoint.clone().sub(eye).normalize();
+    if (slot === 'ab1') { // 갈고리 화살: 맞은 곳으로 끌려감
+      const h = castRay(eye, dir, 30);
+      if (!h.kind || h.kind === 'dummy') { if (CUR.isPlayer) centerMsg('걸 곳이 없음', '', 0.8); return; }
+      SK.act = { type: 'grapple', t: 0, to: h.p.clone(), from: wpos(H.B.hand_L), lock: true, noFire: true };
+      P.draw = 0; ssfx('twang'); ssfx('whoosh');
+    }
+    if (slot === 'ab2') { // 정찰 화살: 박힌 곳 주변 적을 6초 동안 벽 너머로 보여줌
+      const from = wpos(H.muzzle);
+      spawnProj('scout', from, aimPoint.clone().sub(from).normalize().multiplyScalar(60), { g: 3, life: 3 });
+      P.release = 1; P.nockT = 0.4; ssfx('twang');
+    }
+    if (slot === 'ult') { // 화살비: 하늘로 쏘고, 조준한 곳에 3초 동안 화살이 쏟아짐
+      const at = aimPoint.clone(); at.y = groundAt2(at.x, at.z, at.y + 2);
+      SK.act = { type: 'volley', t: 0, at, lock: true, noFire: true, fired: false, dur: 0.9 }; ssfx('ult');
+    }
   } else if (id === 'tick') {
     if (slot === 'ab1') { if (SK.charges <= 0) return; SK.charges--; blink(); return; }
     if (slot === 'ab2') { holo(); }
@@ -1422,6 +1672,17 @@ function updateSkills(dt) {
   if (a) {
     a.t += dt;
     const aimFwd = V(-Math.sin(P.yaw), 0, -Math.cos(P.yaw));
+    if (a.type === 'grapple') {
+      const rope = grappleRope(), hp = wpos(H.B.hand_L), dv = a.to.clone().sub(P.pos.clone().add(V(0, 1, 0)));
+      const shoot = Math.min(1, a.t / 0.12);   // 줄이 먼저 날아가 박히고
+      const tip = hp.clone().lerp(a.to, shoot);
+      _bv.copy(tip).sub(hp); rope.position.copy(hp); rope.scale.set(1, _bv.length(), 1); rope.quaternion.setFromUnitVectors(UP, _bv.normalize()); rope.visible = true;
+      if (a.t > 0.12) { const d = dv.length(); const v = dv.normalize().multiplyScalar(Math.min(24, 8 + a.t * 60)); P.vel.copy(v); P.ground = false; SK.fovAdd = Math.max(SK.fovAdd, 10); if (d < 1.4 || a.t > 1.3) { P.vel.multiplyScalar(0.35); P.vel.y = 5.5; SK.act = null; rope.visible = false; SK.cd.ab1 = ABIL.aria.ab1.cd; } }
+    }
+    if (a.type === 'volley') {
+      if (!a.fired && a.t > 0.42) { a.fired = true; P.release = 1; P.nockT = 0.4; ssfx('twang'); zones.push(makeRain(a.at)); }
+      if (a.t > a.dur) SK.act = null;
+    }
     if (a.type === 'charge' || a.type === 'ram') {
       const dir = a.type === 'ram' ? aimFwd : a.dir, spd = a.type === 'ram' ? 11 : 17;
       const ease = a.type === 'charge' ? (a.t < 0.08 ? a.t / 0.08 : 1) : Math.min(1, a.t / 0.3);
@@ -1576,7 +1837,7 @@ function updateSkills(dt) {
   } else if (SK.shell) SK.shell.visible = false;
   // 래칫 궁극기: 몸에서 주황빛
   const glow = SK.act && SK.act.type === 'ram' ? 0.05 + Math.sin(performance.now() / 70) * 0.025 : (SK.shieldT > 0 ? 0.04 * SK.shieldT / 1.5 : 0);
-  if (glow !== SK.lastGlow) { H.model.traverse((o) => { if (o.isMesh && o.material.emissive) { o.material.emissive.setRGB(1, 0.42, 0.1); o.material.emissiveIntensity = glow; } }); SK.lastGlow = glow; }
+  if (glow !== SK.lastGlow) { if (!(glow === 0 && CUR.lastFl)) H.model.traverse((o) => { if (o.isMesh && o.material.emissive) { o.material.emissive.setRGB(1, 0.42, 0.1); o.material.emissiveIntensity = glow; } }); SK.lastGlow = glow; }
   if (!P.isPlayer) return;
   // UI
   const ab = ABIL[id];
@@ -1621,6 +1882,10 @@ function actionPose() {
   } else if (a.type === 'raise') {
     const w = t < 0.35 ? smooth(t / 0.35) : t > 0.9 ? Math.max(0, 1 - (t - 0.9) / 0.3) : 1;
     o.gunW = w; o.raise = 1; o.gunPitch = 1.45; o.lean = -0.12 * w;
+  } else if (a.type === 'grapple') {
+    o.lean = -0.15; o.crouch = -0.02;
+  } else if (a.type === 'volley') {
+    o.lean = -0.18 * Math.min(1, t / 0.25);
   } else if (a.type === 'dome') {
     const up = t < 0.3 ? smooth(t / 0.3) : 1, down = t < 0.3 ? 0 : smooth(Math.min(1, (t - 0.3) / 0.14));
     const back = t > 0.65 ? smooth(Math.min(1, (t - 0.65) / 0.3)) : 0;
@@ -1732,6 +1997,7 @@ function allyAt(range) { // 조준선 위의 아군
   return best;
 }
 function killUnit(d, killer) {
+  if (d.SK.rope) d.SK.rope.visible = false; if (d.SK.act && d.SK.act.type === 'grapple') d.SK.act = null; d.P.draw = 0;
   d.dead = true; d.hp = 0; d.respawnT = 5; d.deadT = 0; d.P.deaths++;
   if (killer) killer.P.kills++;
   const ks = killer ? killer.SK : null; if (ks && killer.H) ks.ult = Math.min(1, ks.ult + 0.04);
@@ -1749,7 +2015,7 @@ function killUnit(d, killer) {
 async function getHero(id) {
   if (CACHE[id]) return CACHE[id];
   const C = HEROES[id];
-  const [g, w, meta] = await Promise.all([load(C.glb), load(C.gun), fetch(C.meta).then((r) => r.json())]);
+  const [g, w, meta] = await Promise.all([load(C.glb), C.gun ? load(C.gun) : Promise.resolve(null), fetch(C.meta).then((r) => r.json())]);
   return (CACHE[id] = { g, w, meta });
 }
 // ── 유닛 만들기
@@ -1771,6 +2037,7 @@ function setHeroFor(U, id) {
   if (S.dome) { scene.remove(S.dome.m); S.dome = null; }
   if (S.plate) S.plate.visible = false; if (S.shell) S.shell.visible = false; if (S.selfB) S.selfB.visible = false; if (S.healBeam) S.healBeam.visible = false;
   if (S.holo) { scene.remove(S.holo.g); for (const c of S.holo.g.userData.guns || []) scene.remove(c); S.holo = null; }
+  if (S.rope) { scene.remove(S.rope); S.rope = null; }
   for (let i = drones.length - 1; i >= 0; i--) if (drones[i].owner === U) { scene.remove(drones[i].g); drones.splice(i, 1); }
   for (let i = zones.length - 1; i >= 0; i--) if (zones[i].owner === U) { scene.remove(zones[i].g); zones.splice(i, 1); }
   Object.assign(S, { act: null, cd: { ab1: 0, ab2: 0 }, charges: 2, chT: 0, buff: 0, bubbleT: 0, shieldT: 0, lastGlow: -1, ult: old ? 0 : S.ult });
@@ -1800,7 +2067,7 @@ function setHeroFor(U, id) {
   Hh.palms.hand_L = V(...C.palmL).applyQuaternion(wquat(B.hand_L).invert());
   for (const s of 'RL') if (B['foot_' + s]) Hh.footRest[s] = wquat(B['foot_' + s]);
   buildFingers(Hh);
-  const gun = data.w.scene.clone(true); gun.scale.setScalar(C.gunScale);
+  const gun = C.bow ? makeBow() : data.w.scene.clone(true); gun.scale.setScalar(C.gunScale);
   gun.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   Hh.gun = gun; Hh.muzzle = gun.getObjectByName('Muzzle'); Hh.gripL = gun.getObjectByName('Grip_L'); scene.add(gun);
   if (C.hold === 'dual') { const g2 = data.w.scene.clone(true); g2.scale.setScalar(C.gunScale); Hh.gun2 = g2; Hh.muzzle2 = g2.getObjectByName('Muzzle'); scene.add(g2); }
@@ -1850,15 +2117,16 @@ function stepUnit(U, dt) {
   P.cool = Math.max(0, P.cool - dt);
   if (P.swing >= 0) { P.swing += dt; if (!P.swingHit && P.swing > 0.31) { P.swingHit = true; meleeHit(); } if (P.swing > 0.85) P.swing = -1; }
   P.bloom = Math.max(0, P.bloom - dt * (P.cool > 0 ? 0.01 : 0.08));
-  if (inp.fire && !(U.blind > 0 && !U.isPlayer) && (H.W.auto || P.cool <= 0)) fire();
-  if (P.mag <= 0 && !H.W.melee && P.reload <= 0 && P.cool <= 0) startReload();
+  if (H.W.bow) bowStep(inp, dt);
+  else if (inp.fire && !(U.blind > 0 && !U.isPlayer) && (H.W.auto || P.cool <= 0)) fire();
+  if (P.mag <= 0 && !H.W.melee && !H.W.bow && P.reload <= 0 && P.cool <= 0) startReload();
   // 상태 타이머
   U.drT = Math.max(0, U.drT - dt); U.protectT = Math.max(0, U.protectT - dt); U.blind = Math.max(0, U.blind - dt);
   U.flashT = Math.max(0, U.flashT - dt); U.lastHit += dt;
   if (SK.bubbleT <= 0 && SK.shieldT <= 0) U.shield = 0;
   // 맞으면 몸이 번쩍
-  const fl = U.flashT > 0 ? 0.6 : 0;
-  if (fl !== U.lastFl) { for (const mt of H.mats) { if (mt.emissive) { mt.emissive.setRGB(1, 1, 1); mt.emissiveIntensity = fl * 0.35; } } U.lastFl = fl; SK.lastGlow = -1; }
+  const fl = (U.flashT > 0 ? 10 : 0) + (U.revealOn ? 1 : 0);   // 맞으면 흰빛, 정찰 화살에 걸리면 붉은빛
+  if (fl !== U.lastFl) { for (const mt of H.mats) { if (mt.emissive) { if (fl >= 10) { mt.emissive.setRGB(1, 1, 1); mt.emissiveIntensity = 0.21; } else if (fl) { mt.emissive.setRGB(1, 0.12, 0.18); mt.emissiveIntensity = 0.4; } else mt.emissiveIntensity = 0; } } U.lastFl = fl; SK.lastGlow = -1; }
 }
 
 // ════════════ 맵·거점 ════════════
@@ -1934,7 +2202,7 @@ function newBrain(U) {
   return { path: findPath(U.P.pos, via).concat(findPath(via, goal)), perch, target: null, react: 0, think: 0, repathT: 0, attacker: null, wander: null, strafeT: 0, strafeDir: 1, aimOff: V(), aimGoal: V(), aimT: 0, settle: 0, skillT: rand(0.5, 1.5) };
 }
 const WANT = { ratchet: 6, orbit: 10, nok: 2.5, tick: 12, phase: 14, lumen: 12, mora: 14, iko: 13 };
-const RANGE = { ratchet: 15, orbit: 35, nok: 4.3, tick: 38, phase: 26, lumen: 40, mora: 40, iko: 35 };
+const RANGE = { ratchet: 15, orbit: 35, nok: 4.3, tick: 38, phase: 26, lumen: 40, mora: 40, iko: 35, aria: 48 };
 function botThink(U, dt) {
   if (!U.bot.path) U.bot = newBrain(U);
   const b = U.bot, D = DIFF[opts.diff], inp = P.input, id = H.id;
@@ -2019,6 +2287,8 @@ function botThink(U, dt) {
     const aligned = off < D.fireCone + 0.4 / Math.max(4, dist) && b.react <= 0;
     if (healMode) { if (id === 'lumen') inp.rmb = dist < 15; else if (aligned) inp.rmb = true; }
     else if (aligned && dist < RANGE[id] && matchState !== 'setup' && !(t && t.isDecoy && Math.random() < 0.3)) inp.fire = true;
+    else if (H.W.bow && P.draw > 0 && dist < RANGE[id] && matchState !== 'setup') inp.fire = true;   // 활: 당기는 중엔 계속 쥐고 있다가 겨눠지면 놓음
+    b.aligned = aligned;
     if (matchState === 'play' && t && !t.isDecoy) botSkills(U, t, dist);
   } else {
     if (mv.lengthSq() > 0) { const ty = Math.atan2(-mv.x, -mv.z); P.yaw += wrapA(ty - P.yaw) * Math.min(1, dt * 5); }
@@ -2047,6 +2317,14 @@ function botSkills(U, t, dist) {
   if (id === 'lumen') { if (SK.cd.ab1 <= 0 && hpF < 0.5) use('ab1'); else supportIdleSkills(U); }
   if (id === 'mora') { if (SK.cd.ab2 <= 0 && dist < 12 && r < 0.6) use('ab2'); else if (SK.cd.ab1 <= 0 && nearCount(allies, P.pos, 8) >= 2 && r < 0.3) use('ab1'); }
   if (id === 'iko') { if (SK.cd.ab1 <= 0 && hpF < 0.6) use('ab1'); else supportIdleSkills(U); }
+  if (id === 'aria') {
+    if (SK.cd.ab2 <= 0 && t && r < 0.5) use('ab2');
+    else if (SK.cd.ab1 <= 0 && (hpF < 0.4 || (dist > 22 && r < 0.3))) {
+      // 높은 곳(지붕 난간·고가) 쪽으로 갈고리
+      const pts = (ctx.def.perches || []).flatMap((p) => [V(p.x, p.y + 0.3, p.z), V(p.x, p.y + 0.3, -p.z)]).filter((p) => p.distanceTo(P.pos) < 24 && p.distanceTo(P.pos) > 5);
+      if (pts.length) { aimPoint = pts[Math.random() * pts.length | 0]; use('ab1'); }
+    }
+  }
 }
 function supportIdleSkills(U) {
   const b = U.bot, id = H.id; if (SK.act) return;
@@ -2064,6 +2342,7 @@ function botUlt(U, t, dist) {
   if (id === 'phase') go = t && dist > 6 && dist < 30;
   if (id === 'lumen' || id === 'iko') go = lowA >= 2 || (lowA >= 1 && nearE >= 2);
   if (id === 'mora') go = nearA >= 2 && nearE >= 1;
+  if (id === 'aria') go = t && dist > 6 && dist < 30 && nearCount(dummies, t.P.pos, 5) >= 2;
   if (go) { useSkill('ult'); U.bot.skillT = 2; }
 }
 
@@ -2110,7 +2389,7 @@ function playerInput() {
 // ════════════ 카메라 ════════════
 // ───────── 1인칭 ─────────
 const VM_LAYER = 2;
-const FP_OFF = { rifle: [0.17, -0.2, -0.42], dual: [0.2, -0.19, -0.44], melee: [0.1, 0.04, -0.16] };
+const FP_OFF = { bow: [-0.2, -0.12, -0.5], rifle: [0.17, -0.2, -0.42], dual: [0.2, -0.19, -0.44], melee: [0.1, 0.04, -0.16] };
 const vmCam = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.01, 20); vmCam.layers.set(VM_LAYER);
 const fpClip = new THREE.Plane();
 for (const l of [hemi, sun, rim, flashLight]) l.layers.enable(VM_LAYER);
@@ -2228,7 +2507,7 @@ function playerHud() {
   const U = PLAYER, C = U.H.C, AB = ABIL[U.H.id];
   $('hname').textContent = C.name; $('hsub').textContent = C.sub;
   $('ab1').querySelector('.nm').textContent = AB.ab1.name; $('ab2').querySelector('.nm').textContent = AB.ab2.name; $('ult').querySelector('.nm').textContent = AB.ult.name;
-  $('magmax').textContent = ' / ' + U.H.W.mag; $('ammo').style.visibility = U.H.W.melee ? 'hidden' : 'visible';
+  $('magmax').textContent = U.H.W.bow ? '' : ' / ' + U.H.W.mag; $('ammo').style.visibility = U.H.W.melee ? 'hidden' : 'visible';
   $('rmbhint').textContent = U.H.W.beam ? '우클릭 · 치유 빛줄기' : U.H.W.dart ? '우클릭 · 치유 다트' : '';
 }
 const plates = new Map();
@@ -2237,10 +2516,11 @@ function updateHud(dt) {
   $('hpfill').style.width = (U.hp / U.maxHp * 100) + '%';
   $('shfill').style.width = Math.min(100, U.shield / U.maxHp * 100) + '%';
   $('hptxt').textContent = `${Math.ceil(U.hp)}${U.shield > 0 ? ' +' + Math.ceil(U.shield) : ''} / ${U.maxHp}`;
-  $('mag').textContent = P0.mag;
+  $('mag').textContent = U.H.W.bow ? '∞' : P0.mag;
   $('reload').textContent = P0.reload > 0 ? '장전 중' : (P0.mag === 0 && !U.H.W.melee ? 'R 장전' : '');
   hitT -= dt; $('hit').style.opacity = hitT > 0 ? 1 : 0;
-  const spreadPx = ((U.H.W.spread || 0.01) + P0.bloom) * innerHeight * 0.75 + 10;
+  const spreadPx = U.H.W.bow ? 34 - 24 * smooth(P0.draw || 0) : ((U.H.W.spread || 0.01) + P0.bloom) * innerHeight * 0.75 + 10;
+  $('ring').style.borderColor = U.H.W.bow && (P0.draw || 0) >= 1 ? 'rgba(255,190,90,.95)' : '';
   $('ring').style.width = $('ring').style.height = spreadPx * 2 + 'px'; $('ring').style.left = $('ring').style.top = -spreadPx + 'px';
   $('vign').style.opacity = Math.max(+$('vign').style.opacity - dt * 1.5, U.hp / U.maxHp < 0.35 ? 0.5 : 0);
   $('flashov').style.opacity = Math.max(0, (+$('flashov').style.opacity || 0) - dt * 0.6);
@@ -2272,7 +2552,7 @@ function updateHud(dt) {
     let el = plates.get(u);
     if (!el) { el = document.createElement('div'); el.className = 'plate ' + (u.team === U.team ? 'ally' : 'enemy'); el.innerHTML = '<span></span><div><i></i></div>'; $('plates').appendChild(el); plates.set(u, el); }
     const head = u.P.pos.clone().setY(u.P.pos.y + 2.2), dist = head.distanceTo(camPos);
-    if (doLos) u.seen = !u.dead && (u.team === U.team || (dist < 40 && los(camPos, head.clone().setY(head.y - 0.8))));
+    if (doLos) u.seen = !u.dead && (u.team === U.team || (u.revealT > 0 && u.revealBy === U.team) || (dist < 40 && los(camPos, head.clone().setY(head.y - 0.8))));
     const v = head.project(camera);
     if (!u.seen || v.z > 1 || dist > 55) { el.style.display = 'none'; continue; }
     el.style.display = 'block'; el.style.left = ((v.x + 1) / 2 * innerWidth) + 'px'; el.style.top = ((1 - v.y) / 2 * innerHeight) + 'px';
@@ -2313,7 +2593,7 @@ function chooseSwap(k) {
   lock();
 }
 function pickComp(exclude) {
-  const pool = { tank: ['ratchet', 'orbit', 'nok'], dps: ['tick', 'phase'], support: ['lumen', 'mora', 'iko'] };
+  const pool = { tank: ['ratchet', 'orbit', 'nok'], dps: ['tick', 'phase', 'aria'], support: ['lumen', 'mora', 'iko'] };
   const need = ['tank', 'dps', 'dps', 'support', 'support'];
   if (exclude) need.splice(need.indexOf(HD[exclude].role), 1);
   const used = new Set(exclude ? [exclude] : []);
@@ -2322,7 +2602,8 @@ function pickComp(exclude) {
 function clearMatch() {
   for (const u of units) { scene.remove(u.H.model); scene.remove(u.H.gun); if (u.H.gun2) scene.remove(u.H.gun2); scene.remove(u.marker); const s = u.SK; for (const k of ['barrier', 'dome']) if (s[k]) scene.remove(s[k].m); for (const k of ['plate', 'shell', 'selfB', 'healBeam']) if (s[k]) scene.remove(s[k]); if (s.holo) scene.remove(s.holo.g); }
   units.length = 0; for (const el of plates.values()) el.remove(); plates.clear();
-  for (const d of drones.splice(0)) scene.remove(d.g); for (const z of zones.splice(0)) scene.remove(z.g); for (const p of projs.splice(0)) scene.remove(p.m);
+  reveals.length = 0;
+  for (const d of drones.splice(0)) scene.remove(d.g); for (const z of zones.splice(0)) { scene.remove(z.g); if (z.falling) for (const f of z.falling) scene.remove(f.m); } for (const p of projs.splice(0)) scene.remove(p.m);
 }
 function startMatch(hero) {
   clearMatch();
@@ -2399,6 +2680,7 @@ function tick(dt) {
     U.marker.visible = true; U.marker.position.set(P.pos.x, P.pos.y + 0.03, P.pos.z);
     unbind(U);
   }
+  updateReveals(dt);
   updateCamera(dt);
   if (matchState === 'play') updatePoint(dt);
   updatePacks(dt);
