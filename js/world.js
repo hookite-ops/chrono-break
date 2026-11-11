@@ -45,7 +45,8 @@ const staticGeo = new Map();
 function addGeo(geo, mat, matrix, cast = true) {
   geo = geo.clone(); geo.applyMatrix4(matrix);
   if (geo.index) geo = geo.toNonIndexed();
-  for (const k of Object.keys(geo.attributes)) if (k !== 'position' && k !== 'normal') geo.deleteAttribute(k);
+  for (const k of Object.keys(geo.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') geo.deleteAttribute(k);
+  if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
   const key = mat.uuid + (cast ? 'c' : 'n');
   if (!staticGeo.has(key)) staticGeo.set(key, { mat, cast, list: [] });
   staticGeo.get(key).list.push(geo);
@@ -59,6 +60,79 @@ export function block(x, y, z, w, h, d, col, o = {}) {
   tM.compose(tP.set(x, y + h / 2, z), tQ, tS.set(w, h, d));
   addGeo(BOXG, mat, tM, o.cast !== false);
   if (o.solid !== false) boxes.push({ min: new THREE.Vector3(x - w / 2, y, z - d / 2), max: new THREE.Vector3(x + w / 2, y + h, z + d / 2) });
+}
+
+// ------------------------------------------------------------ 텍스처 재질 + 면마다 미터 단위 UV
+const TL = new THREE.TextureLoader(), texCache = {};
+export function tex(file, srgb = true) {
+  if (!texCache[file]) {
+    const t = TL.load('assets/tex/' + file); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace; texCache[file] = t;
+  }
+  return texCache[file];
+}
+const tmCache = {};
+// name: assets/tex/name.jpg (+_n, +_e), tw/th: 텍스처 한 장이 덮는 미터
+export function T(name, o = {}) {
+  const key = name + JSON.stringify(o);
+  if (tmCache[key]) return tmCache[key];
+  const m = new THREE.MeshStandardMaterial({
+    map: tex(name + '.jpg'), normalMap: o.n === false ? null : tex(name + '_n.jpg', false),
+    roughness: o.r ?? 0.85, metalness: o.m ?? 0, color: o.c ?? 0xffffff,
+    emissiveMap: o.e ? tex(name + '_e.jpg') : null, emissive: o.e ? (o.ec ?? 0xffffff) : 0x000000, emissiveIntensity: o.ei ?? 1,
+    side: o.side ?? THREE.FrontSide,
+  });
+  if (m.normalMap) m.normalScale.set(o.ns ?? 1, o.ns ?? 1);
+  m.userData.tile = [o.tw ?? 2, o.th ?? o.tw ?? 2];
+  m.userData.local = !!o.local;
+  return (tmCache[key] = m);
+}
+const _p = new THREE.Vector3(), _n = new THREE.Vector3();
+// 상자: 바닥 중앙 (x, y, z), 크기 (w, h, d). 재질이 local이면 면마다 왼쪽 아래 모서리부터, 아니면 세계 좌표로 UV
+export function tblock(x, y, z, w, h, d, mat, o = {}) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  tE.set(o.rx || 0, o.ry || 0, o.rz || 0); tQ.setFromEuler(tE);
+  tM.compose(tP.set(x, y + h / 2, z), tQ, tS.set(1, 1, 1));
+  uvBox(g, mat, tM, w, h, d, o.v0 || 0, o.u0 || 0);
+  addGeo(g, mat, tM, o.cast !== false);
+  if (o.solid !== false) boxes.push({ min: new THREE.Vector3(x - w / 2, y, z - d / 2), max: new THREE.Vector3(x + w / 2, y + h, z + d / 2) });
+}
+export function uvBox(g, mat, matrix, w, h, d, v0 = 0, u0 = 0) {
+  const [tw, th] = mat.userData.tile || [1, 1], local = mat.userData.local;
+  const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
+  for (let i = 0; i < pos.count; i++) {
+    _p.fromBufferAttribute(pos, i); _n.fromBufferAttribute(nor, i);
+    let u, v;
+    if (local) {
+      if (_n.x > 0.5) u = d / 2 - _p.z; else if (_n.x < -0.5) u = _p.z + d / 2;
+      else if (_n.z > 0.5) u = _p.x + w / 2; else if (_n.z < -0.5) u = w / 2 - _p.x;
+      else u = _p.x + w / 2;
+      v = Math.abs(_n.y) > 0.5 ? (_n.y > 0 ? d / 2 - _p.z : _p.z + d / 2) : _p.y + h / 2;
+    } else {
+      _p.applyMatrix4(matrix); _n.transformDirection(matrix);
+      const ax = Math.abs(_n.x), ay = Math.abs(_n.y), az = Math.abs(_n.z);
+      if (ay >= ax && ay >= az) { u = _p.x; v = -_p.z; }
+      else if (ax >= az) { u = _n.x > 0 ? -_p.z : _p.z; v = _p.y; }
+      else { u = _n.z > 0 ? _p.x : -_p.x; v = _p.y; }
+    }
+    uv.setXY(i, (u + u0) / tw, (v + v0) / th);
+  }
+}
+// 아무 모양(이미 세계 좌표가 아니어도 됨)을 정적 합치기에 넣음, 재질이 텍스처면 세계 UV 자동
+export function addMesh(geo, mat, matrix, cast = true) {
+  if (mat.userData && mat.userData.tile && !mat.userData.keepUV) {
+    geo = geo.index ? geo.toNonIndexed() : geo.clone();
+    const [tw, th] = mat.userData.tile; const pos = geo.attributes.position, nor = geo.attributes.normal;
+    const uv = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      _p.fromBufferAttribute(pos, i).applyMatrix4(matrix); _n.fromBufferAttribute(nor, i).transformDirection(matrix);
+      const ax = Math.abs(_n.x), ay = Math.abs(_n.y), az = Math.abs(_n.z); let u, v;
+      if (ay >= ax && ay >= az) { u = _p.x; v = -_p.z; } else if (ax >= az) { u = _n.x > 0 ? -_p.z : _p.z; v = _p.y; } else { u = _n.z > 0 ? _p.x : -_p.x; v = _p.y; }
+      uv[i * 2] = u / tw; uv[i * 2 + 1] = v / th;
+    }
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  }
+  addGeo(geo, mat, matrix, cast);
 }
 export function solid(x0, y0, z0, x1, y1, z1) { boxes.push({ min: new THREE.Vector3(x0, y0, z0), max: new THREE.Vector3(x1, y1, z1) }); }
 export function cylinder(x, y, z, r, h, col, o = {}) {

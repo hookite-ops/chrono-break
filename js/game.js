@@ -3,7 +3,11 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as skClone } from 'three/addons/utils/SkeletonUtils.js';
 import { boxes, moveUnit, findPath, randomFreeNear, groundAt, los, startMap, finishMap, W as WORLD } from './world.js';
-import { MAPS } from './maps.js';
+import { MAPS, cityTick, buildSky } from './city.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { HEROES as HD, DIFF } from './data.js';
 
 const $ = (id) => document.getElementById(id);
@@ -17,16 +21,72 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a1f2b);
-scene.fog = new THREE.Fog(0x1a1f2b, 40, 95);
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 200);
-scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x3a2f28, 1.1));
+scene.fog = new THREE.FogExp2(0x2a2236, 0.012);
+const camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.05, 700);
+const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x3a2f28, 1.1); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
 sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -18, right: 18, top: 18, bottom: -18, near: 1, far: 70 });
+Object.assign(sun.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: 1, far: 120 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
 scene.add(sun, sun.target);
 const rim = new THREE.DirectionalLight(0x7fb8ff, 0.9); rim.position.set(-10, 6, 12); scene.add(rim);
+
+// ───────── 하늘 · 환경광 · 후처리 ─────────
+const SKY = buildSky(scene);
+const pmrem = new THREE.PMREMGenerator(renderer);
+{ const es = new THREE.Scene(); const sk = buildSky(es); scene.environment = pmrem.fromScene(es, 0.02).texture; }
+let composer = null, bloomPass = null;
+const GFX = () => (opts.gfx ?? 1);
+function setupPost() {
+  const q = GFX();
+  renderer.setPixelRatio(Math.min(devicePixelRatio, q >= 2 ? 1.5 : 1) * (dynScale || 1));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = q >= 1;
+  if (q === 0) { composer = null; return; }
+  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: q >= 2 ? 4 : 2 });
+  composer = new EffectComposer(renderer, rt);
+  composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight);
+  composer.addPass(new RenderPass(scene, camera));
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.42, 0.4, 1.0);
+  composer.addPass(bloomPass);
+  vmPass = new RenderPass(scene, vmCam); vmPass.clear = false; vmPass.clearDepth = true; vmPass.enabled = false;
+  composer.insertPass(vmPass, 1);
+  composer.addPass(new OutputPass());
+}
+let dynScale = 1, vmPass = null, perfEma = 1 / 60, perfT = 0;
+// 느린 컴퓨터면 화면 해상도를 자동으로 낮춤 (빠르면 다시 올림)
+function autoScale(dt) {
+  perfEma += (dt - perfEma) * 0.05; perfT += dt;
+  if (perfT < 2) return; perfT = 0;
+  let ns = dynScale;
+  if (perfEma > 1 / 42 && dynScale > 0.55) ns = Math.max(0.55, dynScale - 0.15);
+  else if (perfEma < 1 / 80 && dynScale < 1) ns = Math.min(1, dynScale + 0.1);
+  if (ns === dynScale) return;
+  dynScale = ns;
+  const pr = Math.min(devicePixelRatio, GFX() >= 2 ? 1.5 : 1) * dynScale;
+  renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight);
+  if (composer) { composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight); }
+}
+function render() {
+  const fp = PLAYER && PLAYER.H && PLAYER.H.fp;
+  if (fp) updateFPClip();
+  if (vmPass) vmPass.enabled = !!fp;
+  if (composer) { composer.render(); return; }
+  renderer.render(scene, camera);
+  if (fp) { renderer.autoClear = false; renderer.clearDepth(); renderer.render(scene, vmCam); renderer.autoClear = true; }
+}
+function applyLook(def) {
+  const L = def.look || {};
+  scene.fog.color.setHex(L.fog ?? 0x2a2236); scene.fog.density = L.fogD ?? 0.012;
+  hemi.color.setHex(L.hemiSky ?? 0x8c88d8); hemi.groundColor.setHex(L.hemiGround ?? 0x3a2a30); hemi.intensity = L.hemi ?? 0.85;
+  sun.color.setHex(L.sunCol ?? 0xffa070); sun.intensity = L.sunI ?? 1.9;
+  rim.color.setHex(L.rimCol ?? 0x6f9cff); rim.intensity = L.rimI ?? 0.7;
+  scene.environmentIntensity = L.env ?? 0.55;
+  renderer.toneMappingExposure = L.exposure ?? 1.15;
+  const sd = def.sun || [-45, 26, -28]; sunOff.set(...sd).normalize().multiplyScalar(60);
+  SKY.sunDir.copy(sunOff).normalize();
+}
+const sunOff = new THREE.Vector3(-45, 26, -28);
 
 // ───────── 영웅 설정 ─────────
 const HEROES = {
@@ -34,7 +94,7 @@ const HEROES = {
     name: '래칫', sub: '돌파형 탱커 · 충각판 산탄총', glb: 'assets/play/ratchet.glb', meta: 'assets/play/ratchet.json',
     gun: 'assets/play/shotgun.glb', gunScale: 0.95, speed: 5.2, wpn: 'shotgun',
     gunOff: [0.24, -0.22, -0.40], twist: 0.4, palmR: [-1, 0, 0], palmL: [1, 0, 0],
-    stanceW: 0.24, stride: 1.25, lift: 0.16, crouch: 0.05, cam: [1.2, 0.35, 3.8], heavy: 1,
+    stanceW: 0.24, stride: 1.25, lift: 0.16, crouch: 0.05, cam: [1.2, 0.35, 3.8], heavy: 1, fp: [0.25, -0.26, -0.46],
     wristR: [-0.13, 0.05, -0.03], wristL: [-0.12, -0.04, -0.07], padFollow: 0.35,
   },
   orbit: {
@@ -62,7 +122,7 @@ const HEROES = {
     name: '페이즈', sub: '제압형 딜러 · 유탄발사기', glb: 'assets/play/phase.glb', meta: 'assets/play/phase.json',
     gun: 'assets/play/launcher.glb', gunScale: 1.0, speed: 5.6, wpn: 'launcher',
     gunOff: [0.17, -0.14, -0.2], twist: 0.5, palmR: [0, -1, 0], palmL: [0, -1, 0],
-    stanceW: 0.16, stride: 1.4, lift: 0.17, crouch: 0.07, cam: [1.0, 0.3, 3.3], heavy: 0,
+    stanceW: 0.16, stride: 1.4, lift: 0.17, crouch: 0.07, cam: [1.0, 0.3, 3.3], heavy: 0, fp: [0.21, -0.27, -0.58],
     wristR: [-0.085, 0.02, -0.02], wristL: [-0.08, -0.02, -0.05],
   },
   lumen: {
@@ -127,13 +187,28 @@ const SFX = {
   launch() { const t = AC.currentTime; tone(t, 160, 60, 0.25, 0.9); burst(t, 0.2, 900, 0.8, 0.7); burst(t, 0.05, 4000, 1, 0.3, 'highpass'); },
   zap() { const t = AC.currentTime; tone(t, 1800, 600, 0.15, 0.22, 'triangle'); tone(t, 900, 1400, 0.1, 0.1); },
   rifle() { const t = AC.currentTime; tone(t, 1400, 220, 0.09, 0.28, 'sawtooth'); burst(t, 0.07, 3500, 1.2, 0.5, 'bandpass'); tone(t, 90, 50, 0.08, 0.5); },
-  hit(crit) { const t = AC.currentTime; tone(t, crit ? 1700 : 1150, crit ? 1500 : 900, 0.07, 0.22); },
-  kill() { const t = AC.currentTime; tone(t, 600, 1200, 0.18, 0.35); tone(t + 0.08, 900, 1800, 0.2, 0.25); },
+  hit(crit) { const t = AC.currentTime; if (crit) { tone(t, 2400, 2300, 0.12, 0.2, 'triangle'); tone(t, 3600, 3500, 0.09, 0.08); burst(t, 0.03, 5000, 2, 0.2, 'bandpass'); } else { tone(t, 1250, 950, 0.05, 0.2, 'triangle'); burst(t, 0.025, 3000, 2, 0.15, 'bandpass'); } },
+  kill() { const t = AC.currentTime; tone(t, 160, 60, 0.25, 0.6); tone(t, 880, 880, 0.12, 0.28, 'triangle'); tone(t + 0.09, 1320, 1320, 0.22, 0.26, 'triangle'); tone(t + 0.09, 2640, 2640, 0.16, 0.06); },
   click(f = 3000) { const t = AC.currentTime; burst(t, 0.04, f, 4, 0.35, 'bandpass'); },
   step(h) { const t = AC.currentTime; burst(t, 0.07, h ? 220 : 380, 1, h ? 0.3 : 0.16); },
   land(h) { const t = AC.currentTime; tone(t, 90, 40, 0.15, h ? 0.7 : 0.4); burst(t, 0.12, 500, 1, 0.4); },
 };
 const sfx = (n, ...a) => { if (AC) SFX[n](...a); };
+// 배경 소리: 낮게 웅웅대는 도시 + 가운데로 갈수록 커지는 멈춘 시계 째깍 소리
+let amb = null;
+function startAmbience() {
+  if (!AC || amb) return;
+  const src = AC.createBufferSource(); src.buffer = noiseBuf(4); src.loop = true;
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
+  const g = AC.createGain(); g.gain.value = 0.05; src.connect(lp); lp.connect(g); g.connect(master); src.start();
+  const hum = AC.createOscillator(); hum.frequency.value = 55; const hg = AC.createGain(); hg.gain.value = 0.012; hum.connect(hg); hg.connect(master); hum.start();
+  amb = { g, hg, tickT: 0 };
+}
+function ambienceTick(dt, near) {
+  if (!amb) return;
+  amb.tickT -= dt;
+  if (amb.tickT <= 0) { amb.tickT = 1; const t = AC.currentTime, v = 0.02 + 0.16 * near; burst(t, 0.03, 4200, 6, v, 'bandpass'); burst(t + 0.5, 0.03, 3200, 6, v * 0.8, 'bandpass'); if (Math.random() < 0.03) tone(t, 620, 600, 1.4, 0.03 + 0.05 * near, 'sine'); }
+}
 
 // ───────── 수학 도우미 ─────────
 const UP = new THREE.Vector3(0, 1, 0);
@@ -452,6 +527,12 @@ function poseHero(dt) {
   m.updateMatrixWorld(true);
   // ── 무기 위치
   const pivot = wpos(chest || spine).add(V(0, chest ? 0.08 : 0.25, 0));
+  if (H.fp) { // 1인칭: 무기가 화면 오른쪽 아래에 보이도록 기준점을 눈 앞으로 옮김
+    const fq = new THREE.Quaternion().setFromEuler(new THREE.Euler(P.pitch, P.yaw, 0, 'YXZ'));
+    const fo = C.fp || FP_OFF[C.hold || 'rifle'];
+    pivot.copy(H.fpEye).add(V(fo[0], fo[1], fo[2]).applyQuaternion(fq));
+    if (C.hold !== 'melee') pivot.sub(V(C.gunOff[0], C.gunOff[1], C.gunOff[2]).applyQuaternion(fq));
+  }
   yawRate *= Math.exp(-14 * dt); pitchRate *= Math.exp(-14 * dt);
   const sw = A.sway.step(V(clamp(-yawRate * 0.6, -0.08, 0.08), clamp(-pitchRate * 0.5, -0.06, 0.06), 0), dt);
   const rp = recoilPos.step(V(), dt), rr = recoilRot.step(V(), dt);
@@ -518,6 +599,10 @@ function poseHero(dt) {
       tg = upP.lerp(dnP, k); dr = UP.clone().lerp(UP.clone().negate().addScaledVector(aimFwd, 0.3), k).normalize(); pm = aimFwd.clone().lerp(UP.clone().negate(), k).normalize();
     }
     wristL.lerp(tg, ap.handW); dirL = dirL.clone().lerp(dr, ap.handW).normalize(); palmL = palmL.clone().lerp(pm, ap.handW).normalize();
+  }
+  if (H.fp && !(ap.handW > 0)) { // 1인칭: 손이 앞 손잡이까지 안 닿으면 총을 따라 뒤로 미끄러뜨림
+    const sL = wpos(B.upperarm_L), reach = (H.len.upperarm_L + H.len.forearm_L) * 0.97;
+    for (let i = 0; i < 12 && wristL.distanceTo(sL) > reach; i++) wristL.lerp(gun.position, 0.12);
   }
   ik2('upperarm_L', 'forearm_L', wristL, aimRight.clone().multiplyScalar(-0.9).addScaledVector(UP, -1.1).addScaledVector(aimFwd, -0.2));
   aimBone('hand_L', dirL, palmL);
@@ -623,6 +708,7 @@ function poseDual(dt, c) {
 // 열쇠 자세: 손잡이(오른손) 위치 [오른쪽, 위, 앞], 망치머리 방향 [오른쪽, 위, 앞], 상체 비틀기, 숙임, 웅크림
 const MK = {
   idle: { g: [0.22, -0.42, 0.26], d: [-0.55, 0.62, 0.4], tw: 0, ln: 0, cr: 0 },
+  fpIdle: { g: [0.3, -0.42, 0.42], d: [-0.15, 0.8, 0.35], tw: 0, ln: 0, cr: 0 },
   wind: { g: [0.42, 0.08, -0.02], d: [0.55, 0.55, -0.6], tw: 0.75, ln: -0.05, cr: 0.03 },
   mid: { g: [0.12, -0.02, 0.5], d: [0.05, 0.1, 1], tw: 0, ln: 0.12, cr: 0.05 },
   end: { g: [-0.32, -0.08, 0.32], d: [-0.95, -0.05, 0.25], tw: -0.65, ln: 0.15, cr: 0.06 },
@@ -644,7 +730,7 @@ function track(keys, t) { // keys: [[time, key], ...]
   return keys[keys.length - 1][1];
 }
 function meleeFrame() {
-  let base = MK.idle;
+  let base = H.fp ? MK.fpIdle : MK.idle;
   if (SK.barrier && SK.barrier.on && H.id === 'nok') base = mixKey(MK.idle, MK.shield, SK.barrier.k);
   let f = base;
   if (P.swing >= 0) f = track([[0, base], [0.2, MK.wind], [0.31, MK.mid], [0.4, MK.end], [0.85, base]], P.swing);
@@ -656,10 +742,10 @@ function meleeFrame() {
 function poseMelee(dt, c, mf) {
   const { pivot, aimRight, aimFwd, sw, stepBob } = c;
   const B = H.B, g = H.gun;
-  const yawQ = new THREE.Quaternion().setFromAxisAngle(UP, P.yaw);
-  const rt = V(1, 0, 0).applyQuaternion(yawQ), fw = V(0, 0, -1).applyQuaternion(yawQ);
-  const loc = (v) => rt.clone().multiplyScalar(v[0]).addScaledVector(UP, v[1]).addScaledVector(fw, v[2]);
-  g.position.copy(pivot).add(loc(mf.g)).add(stepBob.clone().applyQuaternion(yawQ)).addScaledVector(rt, sw.x * 0.3).addScaledVector(UP, sw.y * 0.3);
+  const yawQ = H.fp ? new THREE.Quaternion().setFromEuler(new THREE.Euler(P.pitch * 0.85, P.yaw, 0, 'YXZ')) : new THREE.Quaternion().setFromAxisAngle(UP, P.yaw);
+  const rt = V(1, 0, 0).applyQuaternion(yawQ), fw = V(0, 0, -1).applyQuaternion(yawQ), upL = V(0, 1, 0).applyQuaternion(yawQ);
+  const loc = (v) => rt.clone().multiplyScalar(v[0]).addScaledVector(upL, v[1]).addScaledVector(fw, v[2]);
+  g.position.copy(pivot).add(loc(mf.g)).add(stepBob.clone().applyQuaternion(yawQ)).addScaledVector(rt, sw.x * 0.3).addScaledVector(upL, sw.y * 0.3);
   const dir = loc(mf.d).normalize();
   // 망치 머리 쪽 = 무기 로컬 -Z. 망치 면(로컬 +Y)은 휘두르는 방향을 향하게
   const upHint = Math.abs(dir.dot(fw)) > 0.9 ? UP.clone() : fw.clone();
@@ -1266,6 +1352,10 @@ function updateSkills(dt) {
       const fw = V(-Math.sin(b.yaw), 0, -Math.cos(b.yaw));
       b.m.position.copy(P.pos).addScaledVector(fw, 0.95); b.m.position.y = P.pos.y - 2.4 * (1 - b.k);
       b.m.rotation.y = b.yaw; b.rune.material.opacity = 0.6 + Math.sin(performance.now() / 200) * 0.3;
+      { // 1인칭에서 자기 석판은 반투명 (앞이 보이게)
+        const sm = b.m.children[0].material, want = H.fp ? 0.32 : 1;
+        if (sm.opacity !== want) { sm.transparent = want < 1; sm.opacity = want; sm.depthWrite = want === 1; sm.needsUpdate = true; }
+      }
     } else {
       b.m.position.copy(P.pos); b.m.rotation.y = b.yaw;
       b.m.scale.set(b.k, b.k * (0.6 + 0.4 * b.k), b.k);
@@ -1360,7 +1450,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 let CUR = null, PLAYER = null, allies = [], dummies = [];
 let yawRate = 0, pitchRate = 0;
 const units = [];
-const opts = { diff: 1, sens: 1, hero: 'ratchet' };
+const opts = { diff: 1, sens: 1, hero: 'ratchet', gfx: 1, fp: true };
 try { Object.assign(opts, JSON.parse(localStorage.getItem('cb_opts') || '{}')); } catch (e) {}
 const saveOpts = () => { try { localStorage.setItem('cb_opts', JSON.stringify(opts)); } catch (e) {} };
 const newP = () => ({
@@ -1376,7 +1466,7 @@ function muzzleFlash(mz) {
   const k = H.C.wpn, mat = flashMats[k] || (flashMats[k] = new THREE.SpriteMaterial({ map: flashTex[k] || flashTex.rifle, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
   const s = new THREE.Sprite(mat); s.position.copy(mz); s.scale.setScalar(k === 'shotgun' ? 0.9 : 0.42); scene.add(s);
   fx.push({ o: s, t: 0, life: 0.045, kind: 'mflash' });
-  if (P.isPlayer) { flashLight.position.copy(mz); flashLight.color.set(k === 'rifle' ? 0x9fd8ff : 0xffb060); flashLight.intensity = k === 'shotgun' ? 30 : 12; }
+  if (P.isPlayer) { const fpm = H.fp ? 0.3 : 1; flashLight.position.copy(mz); if (H.fp) flashLight.position.add(camera.getWorldDirection(V()).multiplyScalar(0.8)); flashLight.color.set(k === 'rifle' ? 0x9fd8ff : 0xffb060); flashLight.intensity = (k === 'shotgun' ? 30 : 12) * fpm; }
 }
 function dummyPos(d) { return d.P.pos; }
 
@@ -1408,13 +1498,14 @@ function barrierBlock(o, d, best) {
 }
 
 // ── 피해·치유·처치
+const DMG_MUL = 1.35;   // 처치 속도: 치유보다 피해가 앞서게
 function hurtDummy(d, dmg, crit, push) {
   if (!d || d.dead || dmg <= 0 || d.isDecoy) return 0;
   let m = 1;
   if (d.SK.act && d.SK.act.type === 'ram') m *= 0.5;
   if (d.drT > 0) m *= 0.6;
   if (d.H && d.H.C.heavy) m *= 0.95;
-  dmg = Math.max(1, Math.round(dmg * m));
+  dmg = Math.max(1, Math.round(dmg * m * DMG_MUL));
   let left = dmg;
   if (d.shield > 0) { const a = Math.min(d.shield, left); d.shield -= a; left -= a; }
   d.hp -= left;
@@ -1455,7 +1546,7 @@ function killUnit(d, killer) {
   if (killer) killer.P.kills++;
   const ks = killer ? killer.SK : null; if (ks && killer.H) ks.ult = Math.min(1, ks.ult + 0.04);
   feed(killer, d);
-  if (killer && killer.isPlayer) { sfx('kill'); killBanner(d); }
+  if (killer && killer.isPlayer) { sfx('kill'); killBanner(d); $('hit').className = 'kill'; hitT = 0.35; }
   if (d.isPlayer) { $('death').classList.remove('hidden'); $('killer').textContent = killer ? `${killer.name} (${killer.H.C.name})` : ''; }
   // 진행 중이던 스킬 정리
   const s = d.SK; s.act = null; if (s.barrier) s.barrier.on = false; s.bubbleT = 0; s.buff = 0; d.shield = 0;
@@ -1588,7 +1679,7 @@ function loadMap(id) {
   ctx.gates = []; ctx.packs = []; ctx.pointR = def.pointR; ctx.shell = null;
   def.build(ctx);
   finishMap();
-  scene.fog.near = def.fogNear; scene.fog.far = def.fogFar; scene.background.set(0x9fb3c8); scene.fog.color.set(0x9fb3c8);
+  applyLook(def);
   packs.length = 0;
   for (let [x, y, z] of ctx.packs) {
     if (y === null) y = groundAt(x, z, 30);
@@ -1638,6 +1729,7 @@ function updatePoint(dt) {
     if (score[o] >= 100) endMatch(o);
   }
   if (ctx.core) ctx.core.material.emissive.setHex(point.contested ? 0xffffff : point.owner === 'blue' ? 0x2a9fff : point.owner === 'red' ? 0xff3344 : 0xff7a1a);
+  if (ctx.coreLight) ctx.coreLight.color.setHex(point.contested ? 0xffe8d0 : point.owner === 'blue' ? 0x3aa8ff : point.owner === 'red' ? 0xff4050 : 0xff8a2a);
 }
 
 // ════════════ 봇 ════════════
@@ -1795,6 +1887,7 @@ addEventListener('keydown', (e) => {
     const slot = (e.code === 'ShiftLeft' || e.code === 'ShiftRight') ? 'ab1' : e.code === 'KeyE' ? 'ab2' : e.code === 'KeyQ' ? 'ult' : null;
     if (slot && !PLAYER.dead && matchState !== 'setup' || (slot && matchState === 'setup' && slot !== 'ult')) { bind(PLAYER); useSkill(slot); unbind(PLAYER); }
     if (e.code === 'KeyH') openSwap();
+    if (e.code === 'KeyV') { opts.fp = !opts.fp; saveOpts(); centerMsg(opts.fp ? '1인칭 시점' : '3인칭 시점', 'V로 바꾸기', 1.0); }
     if (e.code === 'Tab') { e.preventDefault(); $('board').classList.remove('hidden'); renderBoard(); }
   }
   if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
@@ -1824,6 +1917,60 @@ function playerInput() {
 }
 
 // ════════════ 카메라 ════════════
+// ───────── 1인칭 ─────────
+const VM_LAYER = 2;
+const FP_OFF = { rifle: [0.17, -0.2, -0.42], dual: [0.2, -0.19, -0.44], melee: [0.1, 0.04, -0.16] };
+const vmCam = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.01, 20); vmCam.layers.set(VM_LAYER);
+const fpClip = new THREE.Plane();
+for (const l of [hemi, sun, rim, flashLight]) l.layers.enable(VM_LAYER);
+sun.shadow.camera.layers.enable(VM_LAYER);
+shellMesh.layers.enable(VM_LAYER); magMesh.layers.enable(VM_LAYER);
+// 1인칭에서 카메라에 너무 가까운 몸(어깨·목)은 그리지 않음 — 화면 깊이로 잘라냄
+const FPU = { uFP: { value: 0 }, uClip: { value: 0.26 } };
+function fpPatch(m, on) {
+  if (!m.userData.fpPatched) {
+    m.userData.fpPatched = true;
+    const prev = m.onBeforeCompile;
+    m.onBeforeCompile = (sh, r) => {
+      if (prev) prev(sh, r);
+      sh.uniforms.uFP = m.userData.uFP = { value: on ? 1 : 0 }; sh.uniforms.uClip = FPU.uClip; sh.uniforms.uHead = { value: m.userData.headIdx ?? -1 };
+      // 머리 뼈에 붙은 부분(머리카락·투구)은 1인칭에서 숨김
+      sh.vertexShader = 'uniform float uHead; varying float vHeadW;\n' + sh.vertexShader.replace('#include <skinning_vertex>', '#include <skinning_vertex>\n#ifdef USE_SKINNING\n vHeadW = dot(vec4(equal(skinIndex, vec4(uHead))), skinWeight);\n#else\n vHeadW = 0.0;\n#endif');
+      sh.fragmentShader = 'uniform float uFP; uniform float uClip; varying float vHeadW;\n' + sh.fragmentShader.replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n if (uFP > 0.5 && (vViewPosition.z < uClip || vHeadW > 0.3)) discard;');
+    };
+    m.customProgramCacheKey = () => 'fpclip';
+    m.needsUpdate = true;
+  }
+  if (m.userData.uFP) m.userData.uFP.value = on ? 1 : 0;
+  else m.userData.fpOn = on;
+}
+function fpWanted() { return !!(opts.fp && PLAYER && !PLAYER.dead); }
+function applyFP(U, on) {
+  const H0 = U.H; if (!H0) return;
+  if (H0.fp === on && H0.fpApplied) return;
+  H0.fp = on; H0.fpApplied = true;
+  const setL = (o) => o.traverse((c) => { if (on) c.layers.set(VM_LAYER); else c.layers.set(0); });
+  setL(H0.model); setL(H0.gun); if (H0.gun2) setL(H0.gun2);
+  if (H0.B.head) H0.B.head.scale.setScalar(on ? 0.01 : 1);
+  H0.model.traverse((o) => { if (o.isSkinnedMesh && H0.B.head) o.material.userData.headIdx = o.skeleton.bones.indexOf(H0.B.head); });
+  for (const m of H0.mats) fpPatch(m, on);
+  if (U.marker) U.marker.visible = !on;
+  if (!H0.eyeH) H0.eyeH = (H0.meta.tips.head ? H0.meta.tips.head[1] : 1.75) * 0.92;
+}
+function fpEyeUpdate(U, dt) {
+  const H0 = U.H, P0 = U.P, A0 = U.A;
+  if (!H0.fpEye) H0.fpEye = V();
+  if (!H0.eyeH) H0.eyeH = (H0.meta.tips.head ? H0.meta.tips.head[1] : 1.75) * 0.92;
+  const bob = A0 ? Math.sin(A0.phase * 2) * 0.025 * A0.gait * (P0.ground ? 1 : 0) : 0;
+  U.eyeY = damp(U.eyeY ?? P0.pos.y, P0.pos.y, P0.ground ? 18 : 60, dt);   // 계단 오를 때 부드럽게
+  H0.fpEye.set(P0.pos.x, U.eyeY + H0.eyeH + bob, P0.pos.z);
+}
+function updateFPClip() {
+  const f = camera.getWorldDirection(V());
+  fpClip.setFromNormalAndCoplanarPoint(f, camera.position.clone().addScaledVector(f, 0.2));
+  vmCam.position.copy(camera.position); vmCam.quaternion.copy(camera.quaternion);
+  if (vmCam.fov !== camera.fov || vmCam.aspect !== camera.aspect) { vmCam.fov = camera.fov; vmCam.aspect = camera.aspect; vmCam.updateProjectionMatrix(); }
+}
 function updateCamera(dt) {
   const U = PLAYER, P0 = U.P, C = U.H.C, S0 = U.SK;
   P0.camKick = damp(P0.camKick, 0, 9, dt);
@@ -1833,6 +1980,18 @@ function updateCamera(dt) {
     U.deadT += 0;
     const k = Math.min(1, (5 - U.respawnT) / 1.2), pos = P0.pos.clone().add(V(Math.sin(gameT * 0.3) * 5, 4 + k * 3, Math.cos(gameT * 0.3) * 5));
     camera.position.lerp(pos, 1 - Math.exp(-3 * dt)); camera.lookAt(P0.pos); camera.updateMatrixWorld(); return;
+  }
+  if (U.H.fp) {
+    camera.position.copy(U.H.fpEye).add(V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(S0.shake * 0.06));
+    camera.quaternion.copy(camQ);
+    const fovF = 72 + S0.fovAdd * 0.8; if (Math.abs(camera.fov - fovF) > 0.05) { camera.fov = fovF; camera.updateProjectionMatrix(); }
+    camera.updateMatrixWorld();
+    bind(U);
+    const cdF = V(0, 0, -1).applyQuaternion(camQ);
+    aimPoint = castRay(camera.position.clone(), cdF).p;
+    if (aimPoint.distanceTo(camera.position) < 1.2) aimPoint = camera.position.clone().addScaledVector(cdF, 30);
+    unbind(U);
+    return;
   }
   const off = V(...C.cam).applyQuaternion(camQ);
   // 벽에 박히지 않게 카메라를 당김
@@ -2011,12 +2170,15 @@ function updatePacks(dt) {
     }
   }
 }
+const NOLOOP = new URLSearchParams(location.search).has('noloop');
 function frame() {
+  if (NOLOOP) return;
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, clock.getDelta());
-  if (matchState === 'menu' || !PLAYER) { menuCam(dt); renderer.render(scene, camera); return; }
-  if (!paused || window.__nopause) tick(dt);
-  renderer.render(scene, camera);
+  cityTick(dt, performance.now() / 1000);
+  if (matchState === 'menu' || !PLAYER) { menuCam(dt); render(); return; }
+  if (!paused || window.__nopause) { tick(dt); autoScale(dt); }
+  render();
 }
 function tick(dt) {
   gameT += dt;
@@ -2025,6 +2187,7 @@ function tick(dt) {
   playerInput();
   for (const U of units) {
     bind(U);
+    if (U === PLAYER) { applyFP(U, fpWanted()); if (U.H.fp) fpEyeUpdate(U, dt); }
     if (U.dead) {
       U.deadT += dt; U.respawnT -= dt;
       const m = U.H.model, k = Math.min(1, U.deadT * 2.5);
@@ -2037,7 +2200,11 @@ function tick(dt) {
     if (U.bot) botThink(U, dt);
     stepUnit(U, dt);
     // 멀리 있는 봇은 자세를 덜 자주 계산
-    poseHero(dt); updateSpheres(U);
+    if (U.H.fp) { // 1인칭: 어깨가 카메라 바로 아래 오도록 몸을 살짝 앞으로 (아래를 볼수록 뒤로)
+      const k = 0.12 - Math.max(0, -U.P.pitch) * 0.1, sx = -Math.sin(U.P.yaw) * k, sz = -Math.cos(U.P.yaw) * k;
+      U.P.pos.x += sx; U.P.pos.z += sz; poseHero(dt); U.P.pos.x -= sx; U.P.pos.z -= sz;
+    } else poseHero(dt);
+    updateSpheres(U);
     U.marker.visible = true; U.marker.position.set(P.pos.x, P.pos.y + 0.03, P.pos.z);
     unbind(U);
   }
@@ -2046,7 +2213,8 @@ function tick(dt) {
   updatePacks(dt);
   updateFx(dt);
   updateHud(dt);
-  sun.position.set(PLAYER.P.pos.x + 12, 30, PLAYER.P.pos.z + 8); sun.target.position.copy(PLAYER.P.pos);
+  ambienceTick(dt, PLAYER ? Math.max(0, 1 - Math.hypot(PLAYER.P.pos.x, PLAYER.P.pos.z) / 18) : 0);
+  sun.position.copy(PLAYER.P.pos).add(sunOff); sun.target.position.copy(PLAYER.P.pos);
 }
 function updateFx(dt) {
   flashLight.intensity *= Math.pow(0.0005, dt);
@@ -2071,9 +2239,10 @@ function updateFx(dt) {
 }
 function menuCam(dt) {
   const t = performance.now() / 1000;
-  camera.position.set(Math.sin(t * 0.08) * 34, 18, Math.cos(t * 0.08) * 34); camera.lookAt(0, 2, 0);
+  camera.position.set(Math.sin(t * 0.05) * 26, 7 + Math.sin(t * 0.13) * 1.5, Math.cos(t * 0.05) * 26); camera.lookAt(0, 5, 0);
+  sun.position.set(sunOff.x, sunOff.y, sunOff.z); sun.target.position.set(0, 0, 0);
 }
-addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); setupPost(); });
 
 // ════════════ 시작 ════════════
 async function boot() {
@@ -2088,14 +2257,17 @@ async function boot() {
 heroCards($('herogrid'), (k) => { opts.hero = k; saveOpts(); }, opts.hero);
 $('diff').value = String(opts.diff); $('diff').onchange = () => { opts.diff = +$('diff').value; saveOpts(); };
 $('sens').value = String(opts.sens); $('sens').oninput = () => { opts.sens = +$('sens').value; saveOpts(); };
-$('startbtn').onclick = () => { audio(); startMatch(HEROES[opts.hero] ? opts.hero : 'ratchet'); };
+$('view').value = opts.fp ? '1' : '0'; $('view').onchange = () => { opts.fp = $('view').value === '1'; saveOpts(); };
+$('gfx').value = String(opts.gfx ?? 1); $('gfx').onchange = () => { opts.gfx = +$('gfx').value; saveOpts(); setupPost(); };
+$('startbtn').onclick = () => { audio(); startAmbience(); startMatch(HEROES[opts.hero] ? opts.hero : 'ratchet'); };
 $('resume').onclick = () => lock();
 $('toswap').onclick = () => { showPause(false); openSwap(); };
 $('tomenu').onclick = () => { clearMatch(); PLAYER = null; matchState = 'menu'; $('pause').classList.add('hidden'); $('hud').classList.add('hidden'); $('menu').classList.remove('hidden'); };
 $('again').onclick = () => startMatch(PLAYER.H.id);
 $('resmenu').onclick = () => $('tomenu').onclick();
 $('swapclose').onclick = () => { $('swap').classList.add('hidden'); lock(); };
+setupPost();
 boot().catch((e) => { $('loadtxt').textContent = '불러오기 실패: ' + e; console.error(e); });
 frame();
 
-window.__game = { units, get player() { return PLAYER; }, point, score, startMatch, bind, unbind, useSkill, step(n, dt = 1 / 30) { for (let i = 0; i < n; i++) tick(dt); renderer.render(scene, camera); }, get state() { return matchState; }, set state(v) { matchState = v; }, opts };
+window.__game = { camera, scene, renderer, units, get player() { return PLAYER; }, point, score, startMatch, bind, unbind, useSkill, step(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { tick(dt); cityTick(dt, gameT); } render(); }, sim(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { tick(dt); cityTick(dt, gameT); } }, render, get state() { return matchState; }, set state(v) { matchState = v; }, opts };

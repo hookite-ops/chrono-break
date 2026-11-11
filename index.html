@@ -13,17 +13,18 @@
   .hidden { display: none !important; }
   button { font: inherit; cursor: pointer; border: 0; }
   /* ── 메뉴 */
-  #menu { position: fixed; inset: 0; display: grid; place-items: center; background: linear-gradient(180deg, rgba(10,12,18,.35), rgba(10,12,18,.92)); }
+  #menu { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 40%, rgba(10,8,20,.15), rgba(8,6,16,.55) 60%, rgba(6,5,12,.88)); }
+  #menu h1 { text-shadow: 0 0 30px rgba(255,138,42,.35), 0 4px 18px rgba(0,0,0,.6); }
   #menu .box { width: min(1060px, 94vw); text-align: center; }
   #menu h1 { font-size: 64px; font-weight: 900; letter-spacing: .12em; }
   #menu h1 em { color: var(--acc); font-style: normal; }
   #menu .tag { color: var(--dim); margin-top: 6px; }
   .grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 10px; margin: 26px 0 18px; }
-  .card { position: relative; border-radius: 12px; overflow: hidden; background: rgba(255,255,255,.06); border: 2px solid transparent; cursor: pointer; padding-bottom: 8px; transition: .15s; }
+  .card { position: relative; border-radius: 12px; overflow: hidden; background: rgba(16,14,26,.86); backdrop-filter: blur(6px); border: 2px solid transparent; cursor: pointer; padding-bottom: 8px; transition: .15s; }
   .card img { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; background: #1c2130; }
   .card b { display: block; margin-top: 6px; font-size: 16px; } .card span { font-size: 11px; color: var(--dim); }
-  .card:hover { transform: translateY(-3px); background: rgba(255,255,255,.1); }
-  .card.sel { border-color: var(--acc); background: rgba(255,122,47,.14); }
+  .card:hover { transform: translateY(-3px); background: rgba(34,30,50,.92); }
+  .card.sel { border-color: var(--acc); background: rgba(70,36,22,.92); box-shadow: 0 0 22px rgba(255,122,47,.35); }
   .card.off { opacity: .35; cursor: not-allowed; }
   .opts { display: flex; gap: 24px; justify-content: center; align-items: center; color: var(--dim); font-size: 14px; }
   .opts select, .opts input { margin-left: 8px; }
@@ -40,7 +41,7 @@
   #cross .dot { position: absolute; left: -2px; top: -2px; width: 4px; height: 4px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px #000; }
   #hit { position: fixed; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; pointer-events: none; opacity: 0; }
   #hit::before, #hit::after { content: ""; position: absolute; left: 50%; top: 0; width: 3px; height: 100%; margin-left: -1.5px; background: #fff; transform: rotate(45deg); box-shadow: 0 0 0 1px #000; }
-  #hit::after { transform: rotate(-45deg); } #hit.crit::before, #hit.crit::after { background: #ff4b4b; }
+  #hit::after { transform: rotate(-45deg); } #hit.crit::before, #hit.crit::after { background: #ff4b4b; } #hit.kill { width: 44px; height: 44px; margin: -22px 0 0 -22px; } #hit.kill::before, #hit.kill::after { background: #ff3030; width: 4px; box-shadow: 0 0 8px #ff3030; }
   #vign { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(200,0,20,.55)); }
   #flashov { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
   .dmgdir { position: fixed; left: 50%; top: 50%; width: 0; height: 0; border-left: 26px solid transparent; border-right: 26px solid transparent; border-bottom: 34px solid rgba(255,40,40,.85); pointer-events: none; }
@@ -140,10 +141,12 @@
     <div class="opts">
       <label>봇 난이도<select id="diff"><option value="0">쉬움</option><option value="1">보통</option><option value="2">어려움</option></select></label>
       <label>마우스 감도<input id="sens" type="range" min="0.3" max="2.5" step="0.05"></label>
+      <label>시점<select id="view"><option value="1">1인칭</option><option value="0">3인칭</option></select></label>
+      <label>그래픽<select id="gfx"><option value="2">높음</option><option value="1">보통</option><option value="0">낮음 (빠름)</option></select></label>
     </div>
     <button class="big" id="startbtn" disabled>불러오는 중…</button>
     <div id="loadtxt"></div>
-    <div class="keys"><kbd>WASD</kbd>이동 <kbd>Space</kbd>점프 <kbd>좌클릭</kbd>공격 <kbd>우클릭</kbd>치유(지원) <kbd>R</kbd>장전 <kbd>Shift</kbd><kbd>E</kbd>스킬 <kbd>Q</kbd>궁극기 <kbd>H</kbd>영웅 교체 <kbd>Tab</kbd>점수판 <kbd>Esc</kbd>멈춤</div>
+    <div class="keys"><kbd>WASD</kbd>이동 <kbd>Space</kbd>점프 <kbd>좌클릭</kbd>공격 <kbd>우클릭</kbd>치유(지원) <kbd>R</kbd>장전 <kbd>Shift</kbd><kbd>E</kbd>스킬 <kbd>Q</kbd>궁극기 <kbd>V</kbd>1·3인칭 <kbd>H</kbd>영웅 교체 <kbd>Tab</kbd>점수판 <kbd>Esc</kbd>멈춤</div>
     <div class="links"><a href="play.html">영웅 시험장</a> · <a href="classic.html">예전 버전</a></div>
   </div>
 </div>
