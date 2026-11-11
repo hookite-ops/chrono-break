@@ -50,7 +50,7 @@ function setupPost() {
   composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight);
   composer.addPass(new RenderPass(scene, camera));
   // 잘못된 밝기값(무한대·NaN)이 블룸에 번져 검은 네모가 생기는 것을 막음
-  composer.addPass(new ShaderPass({
+  if (!/[?&]nosan/.test(location.search)) composer.addPass(new ShaderPass({
     uniforms: { tDiffuse: { value: null } },
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0); gl_FragColor = vec4(clamp(c.rgb, 0.0, 32.0), c.a); }',
@@ -2751,4 +2751,4 @@ setupPost();
 boot().catch((e) => { $('loadtxt').textContent = '불러오기 실패: ' + e; console.error(e); });
 frame();
 
-window.__game = { camera, scene, renderer, hurt: (u, d, push) => hurtDummy(u, d, false, push), units, get player() { return PLAYER; }, point, score, startMatch, bind, unbind, useSkill, step(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { tick(dt); cityTick(dt, gameT); } render(); }, sim(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { tick(dt); cityTick(dt, gameT); } }, render, get state() { return matchState; }, set state(v) { matchState = v; }, opts };
+window.__game = { get composer() { return composer; }, camera, scene, renderer, hurt: (u, d, push) => hurtDummy(u, d, false, push), units, get player() { return PLAYER; }, point, score, startMatch, bind, unbind, useSkill, step(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { tick(dt); cityTick(dt, gameT); } render(); }, sim(n, dt = 1 / 30) { for (let i = 0; i < n; i++) { tick(dt); cityTick(dt, gameT); } }, render, get state() { return matchState; }, set state(v) { matchState = v; }, opts };
