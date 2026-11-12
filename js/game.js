@@ -63,12 +63,16 @@ function setupPost() {
 }
 let dynScale = 1, vmPass = null, perfEma = 1 / 60, perfT = 0;
 // 느린 컴퓨터면 화면 해상도를 자동으로 낮춤 (빠르면 다시 올림)
+// 화면이 느려지면 해상도를 낮추고, 다시 60프레임이 꾸준히 나오면 되돌림.
+// (예전엔 80프레임 이상일 때만 되돌려서 60Hz 노트북 화면에선 한 번 흐려지면 계속 흐렸음)
+let upHold = 0, upWait = 6;
 function autoScale(dt) {
-  perfEma += (dt - perfEma) * 0.05; perfT += dt;
-  if (perfT < 2) return; perfT = 0;
+  perfEma += (Math.min(dt, 0.05) - perfEma) * 0.05; perfT += dt;
+  if (perfT < 1) return; perfT = 0;
   let ns = dynScale;
-  if (perfEma > 1 / 42 && dynScale > 0.55) ns = Math.max(0.55, dynScale - 0.15);
-  else if (perfEma < 1 / 80 && dynScale < 1) ns = Math.min(1, dynScale + 0.1);
+  if (perfEma > 1 / 48 && dynScale > 0.5) { ns = Math.max(0.5, dynScale - 0.1); upHold = 0; upWait = Math.min(30, upWait * 1.5); }
+  else if (perfEma < 1 / 56 && dynScale < 1) { if (++upHold >= upWait) { ns = Math.min(1, dynScale + 0.1); upHold = 0; } }
+  else upHold = 0;
   if (ns === dynScale) return;
   dynScale = ns;
   const pr = Math.min(devicePixelRatio, GFX() >= 2 ? 1.5 : 1) * dynScale;
@@ -2079,7 +2083,7 @@ function setHeroFor(U, id) {
   for (const s of 'RL') if (B['foot_' + s]) Hh.footRest[s] = wquat(B['foot_' + s]);
   buildFingers(Hh);
   const gun = C.bow ? makeBow() : data.w.scene.clone(true); gun.scale.setScalar(C.gunScale);
-  gun.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  gun.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; } }); // 총 그림자는 거의 안 보여서 끔(그림자 계산 절약)
   Hh.gun = gun; Hh.muzzle = gun.getObjectByName('Muzzle'); Hh.gripL = gun.getObjectByName('Grip_L'); scene.add(gun);
   if (C.hold === 'dual') { const g2 = data.w.scene.clone(true); g2.scale.setScalar(C.gunScale); Hh.gun2 = g2; Hh.muzzle2 = g2.getObjectByName('Muzzle'); scene.add(g2); }
   U.H = Hh; U.role = HD[id].role; U.maxHp = HD[id].hp; U.hp = U.maxHp; U.shield = 0;
