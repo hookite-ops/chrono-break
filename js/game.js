@@ -2387,7 +2387,14 @@ document.addEventListener('pointerlockchange', () => {
   if (!locked) { mouseDown = rmbDown = false; if (matchState === 'play' || matchState === 'setup') { if ($('swap').classList.contains('hidden')) showPause(true); } }
   else showPause(false);
 });
-function lock() { try { canvas.requestPointerLock(); } catch (e) {} }
+// 마우스 잡기가 실패하면(포커스가 없거나 Esc 직후 등) 조작이 안 되는 채로 게임만 돌지 않게 일시 정지 화면을 띄움
+function lockFailed() { if (!locked && (matchState === 'play' || matchState === 'setup') && $('swap').classList.contains('hidden')) showPause(true); }
+function lock() {
+  try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(lockFailed); } catch (e) { lockFailed(); }
+  setTimeout(() => { if (!locked) lockFailed(); }, 900);
+}
+document.addEventListener('pointerlockerror', lockFailed);
+canvas.addEventListener('mousedown', () => { if (!locked && (matchState === 'play' || matchState === 'setup')) lock(); });
 function playerInput() {
   const P0 = PLAYER.P, inp = P0.input, fw = V(-Math.sin(P0.yaw), 0, -Math.cos(P0.yaw)), rt = V(Math.cos(P0.yaw), 0, -Math.sin(P0.yaw));
   inp.wish.set(0, 0, 0);
