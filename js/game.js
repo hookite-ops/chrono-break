@@ -2359,7 +2359,7 @@ function botUlt(U, t, dist) {
 
 // ════════════ 입력 ════════════
 const keys = {};
-let locked = false, mouseDown = false, rmbDown = false, thirdT = 0;
+let locked = false, mouseDown = false, rmbDown = false, thirdT = 0, clickLatch = false, rclickLatch = false;
 addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (!PLAYER || matchState === 'menu' || matchState === 'end' || !locked) return;
@@ -2379,7 +2379,8 @@ addEventListener('mousemove', (e) => {
   PLAYER.P.yaw -= dx; PLAYER.P.pitch = clamp(PLAYER.P.pitch - dy, -1.25, 1.3);
   PLAYER.yawRate -= dx; PLAYER.pitchRate -= dy;
 });
-addEventListener('mousedown', (e) => { if (!locked) return; if (e.button === 0) mouseDown = true; if (e.button === 2) rmbDown = true; });
+// 노트북 터치패드 탭처럼 아주 짧은 클릭도 한 발은 나가게 눌림을 기억해 둠
+addEventListener('mousedown', (e) => { if (!locked) return; if (e.button === 0) { mouseDown = true; clickLatch = true; } if (e.button === 2) { rmbDown = true; rclickLatch = true; } });
 addEventListener('mouseup', (e) => { if (e.button === 0) mouseDown = false; if (e.button === 2) rmbDown = false; });
 addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('pointerlockchange', () => {
@@ -2400,7 +2401,8 @@ function playerInput() {
   inp.wish.set(0, 0, 0);
   if (locked) { if (keys.KeyW) inp.wish.add(fw); if (keys.KeyS) inp.wish.sub(fw); if (keys.KeyD) inp.wish.add(rt); if (keys.KeyA) inp.wish.sub(rt); }
   if (window.__sim) inp.wish.add(fw.clone().multiplyScalar(window.__sim.z)).add(rt.clone().multiplyScalar(window.__sim.x));
-  inp.jump = locked && keys.Space; inp.fire = (locked && mouseDown) || !!window.__fire; inp.rmb = locked && rmbDown;
+  inp.jump = locked && keys.Space; inp.fire = (locked && (mouseDown || clickLatch)) || !!window.__fire; inp.rmb = locked && (rmbDown || rclickLatch);
+  clickLatch = rclickLatch = false;
 }
 
 // ════════════ 카메라 ════════════
@@ -2604,10 +2606,11 @@ function heroCards(el, onPick, sel) {
   el.querySelectorAll('.card').forEach((c) => c.addEventListener('click', () => { if (c.classList.contains('off')) return; el.querySelectorAll('.card').forEach((x) => x.classList.remove('sel')); c.classList.add('sel'); onPick(c.dataset.k); }));
 }
 function openSwap() {
-  if (!PLAYER || !(matchState === 'setup' || matchState === 'play')) return;
-  if (!PLAYER.dead && !inSpawn(PLAYER)) { centerMsg('영웅 교체는 출발 구역에서', '또는 쓰러져 있을 때', 1.8); return; }
+  if (!PLAYER || !(matchState === 'setup' || matchState === 'play')) return false;
+  if (!PLAYER.dead && !inSpawn(PLAYER)) { centerMsg('영웅 교체는 출발 구역에서', '또는 쓰러져 있을 때', 1.8); return false; }
   heroCards($('swapgrid'), (k) => chooseSwap(k), PLAYER.pendingHero || PLAYER.H.id);
   $('swap').classList.remove('hidden'); document.exitPointerLock?.();
+  return true;
 }
 function chooseSwap(k) {
   $('swap').classList.add('hidden');
@@ -2758,7 +2761,7 @@ $('sens').value = String(opts.sens); $('sens').oninput = () => { opts.sens = +$(
 $('gfx').value = String(opts.gfx ?? 1); $('gfx').onchange = () => { opts.gfx = +$('gfx').value; saveOpts(); setupPost(); };
 $('startbtn').onclick = () => { audio(); startAmbience(); startMatch(HEROES[opts.hero] ? opts.hero : 'ratchet'); };
 $('resume').onclick = () => lock();
-$('toswap').onclick = () => { showPause(false); openSwap(); };
+$('toswap').onclick = () => { showPause(false); if (!openSwap()) lock(); }; // 교체 못 하면 바로 게임으로 돌아감
 $('tomenu').onclick = () => { clearMatch(); PLAYER = null; matchState = 'menu'; $('pause').classList.add('hidden'); $('hud').classList.add('hidden'); $('menu').classList.remove('hidden'); };
 $('again').onclick = () => startMatch(PLAYER.H.id);
 $('resmenu').onclick = () => $('tomenu').onclick();
