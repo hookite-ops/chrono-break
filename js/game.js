@@ -67,7 +67,8 @@ let dynScale = 1, vmPass = null, perfEma = 1 / 60, perfT = 0;
 // (예전엔 80프레임 이상일 때만 되돌려서 60Hz 노트북 화면에선 한 번 흐려지면 계속 흐렸음)
 let upHold = 0, upWait = 6;
 function autoScale(dt) {
-  perfEma += (Math.min(dt, 0.05) - perfEma) * 0.05; perfT += dt;
+  if (dt > 0.1 || document.hidden) return; // 창이 가려져 브라우저가 느리게 돌릴 때나 순간 멈춤은 무시
+  perfEma += (dt - perfEma) * 0.05; perfT += dt;
   if (perfT < 1) return; perfT = 0;
   let ns = dynScale;
   if (perfEma > 1 / 48 && dynScale > 0.5) { ns = Math.max(0.5, dynScale - 0.1); upHold = 0; upWait = Math.min(30, upWait * 1.5); }
